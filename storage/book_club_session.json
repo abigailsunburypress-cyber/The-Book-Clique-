@@ -1,0 +1,23 @@
+{
+  "activeManuscriptId": "ethans-presence",
+  "sessionStatus": "active",
+  "startedAt": "2026-11-02T09:50:12.323Z",
+  "chaptersPerDay": 2,
+  "batchScheduleStartDate": "2026-11-02T09:50:12.323Z",
+  "currentDayOverride": null,
+  "discussionMeetingDate": "Last Thursday of the Month · 7:00 PM EST",
+  "discussionMeetingFormat": "Virtual Salon & Community Annotation Board",
+  "discussionPrompts": [
+    "How does Ethan's youthful presence challenge the town's fifty-year silence and shared assumptions?",
+    "What role does unconditional patience play in Anna's slow re-emergence into the community?",
+    "In what ways does this memoir illustrate how inherited judgment can be gently dissolved by compassion?"
+  ],
+  "readingHistory": [
+    {
+      "manuscriptId": "ethans-presence",
+      "completedAt": "2026-11-02T09:49:54.557Z",
+      "sessionTitle": "ETHAN'S PRESENCE",
+      "author": "Chaplain Tom McQueen"
+    }
+  ]
+}
