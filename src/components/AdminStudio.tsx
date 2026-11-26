@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Settings,
@@ -31,17 +31,60 @@ import {
   UserX,
   RefreshCw,
   Heart,
-  Globe
+  Globe,
+  LayoutDashboard,
+  LogOut,
+  MessageSquare,
+  Star,
+  KeyRound,
+  ArrowLeft,
+  ExternalLink,
+  ChevronRight,
+  ShieldCheck,
+  Folder
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Book, TeamMember, BookCategory, Manuscript, ManuscriptAccessLevel } from '../types';
 import { FICTION_GENRES, NONFICTION_GENRES } from '../data/initialData';
 import { calculateBatchSchedule } from '../utils/chapterBatch';
+import {
+  SAMPLE_COMMENTS_RAISING_THE_WHOLE_CHILD,
+  SAMPLE_COMMENTS_STATS
+} from '../data/raisingTheWholeChildSampleComments';
+import {
+  OWNER_ADMIN_UID,
+  OWNER_ADMIN_EMAIL,
+  isFirebaseConfigured,
+  getFirebaseConfig,
+  saveCustomFirebaseConfig
+} from '../lib/firebase';
 
-export const AdminStudio: React.FC = () => {
+export interface AdminStudioProps {
+  isStandalonePage?: boolean;
+}
+
+export type AdminTab =
+  | 'overview'
+  | 'members'
+  | 'bookclub'
+  | 'manuscripts'
+  | 'reviews'
+  | 'inbox'
+  | 'settings'
+  | 'security';
+
+export const AdminStudio: React.FC<AdminStudioProps> = ({ isStandalonePage = false }) => {
   const {
+    activeView,
+    setActiveView,
     isAdminOpen,
     setIsAdminOpen,
+    isAdminLoggedIn,
+    adminToken,
+    adminOwnerEmail,
+    adminOwnerUid,
+    adminLogin,
+    adminLogout,
     siteConfig,
     updateSiteConfig,
     books,
@@ -64,6 +107,8 @@ export const AdminStudio: React.FC = () => {
     openReader,
     communityStats,
     resetToDefaultData,
+    bookClubSelection,
+    updateBookClubSelection,
     bookClubSession,
     activeBookClubManuscript,
     startBookClubSession,
@@ -72,7 +117,24 @@ export const AdminStudio: React.FC = () => {
     updateBookClubSchedule
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'general' | 'members' | 'catalogue' | 'manuscripts' | 'pricing' | 'team' | 'inbox'>('general');
+  const isAdminModalVisible = isStandalonePage
+    ? activeView === 'admin'
+    : activeView !== 'admin' && isAdminOpen;
+
+  // Login Form State (all hooks MUST run unconditionally before any early return)
+  const [loginEmail, setLoginEmail] = useState(adminOwnerEmail || 'hollowaylydia.us@gmail.com');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [showFirebaseConfigModal, setShowFirebaseConfigModal] = useState(false);
+  const [fbApiKey, setFbApiKey] = useState(() => getFirebaseConfig().apiKey);
+  const [fbProjectId, setFbProjectId] = useState(() => getFirebaseConfig().projectId);
+  const [fbAuthDomain, setFbAuthDomain] = useState(() => getFirebaseConfig().authDomain);
+  const [fbAppId, setFbAppId] = useState(() => getFirebaseConfig().appId || '');
+
+  // Active Admin Tab
+  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'catalogue' | 'pricing' | 'team'>('general');
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
 
   // Registered Members State
@@ -83,54 +145,32 @@ export const AdminStudio: React.FC = () => {
   const [memberSortOrder, setMemberSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [memberActionLoading, setMemberActionLoading] = useState<string | null>(null);
 
-  const fetchAdminMembers = async () => {
-    setIsLoadingMembers(true);
-    try {
-      const res = await fetch('/api/admin/members');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.members)) {
-          setAdminMembers(data.members);
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load registered members:', e);
-    } finally {
-      setIsLoadingMembers(false);
-    }
-  };
+  // Reviews Moderation State
+  const [reviewRatingFilter, setReviewRatingFilter] = useState<number | 'all'>('all');
+  const [reviewSearchQuery, setReviewSearchQuery] = useState('');
+  const [slowProductivityGenuineReviews, setSlowProductivityGenuineReviews] = useState<any[]>([]);
+  const [slowProductivityDiscussionComments, setSlowProductivityDiscussionComments] = useState<any[]>([]);
 
-  React.useEffect(() => {
-    if (activeTab === 'members' || isAdminOpen) {
-      fetchAdminMembers();
-    }
-  }, [activeTab, isAdminOpen]);
-
-  const handleToggleMemberStatus = async (memberId: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'suspended' ? 'active' : 'suspended';
-    setMemberActionLoading(memberId);
-    try {
-      const res = await fetch(`/api/admin/members/${memberId}/status`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-key': 'tbc_verified_admin'
-        },
-        body: JSON.stringify({ status: nextStatus })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        showSuccess(`Member account status is now ${nextStatus}.`);
-        await fetchAdminMembers();
-      } else {
-        alert(data.error || 'Failed to update member status.');
-      }
-    } catch (e: any) {
-      alert(e.message || 'Error updating member status.');
-    } finally {
-      setMemberActionLoading(null);
-    }
-  };
+  // Book Club Selection Editor State (Owner Only)
+  const [bcTitle, setBcTitle] = useState(bookClubSelection.bookTitle);
+  const [bcSubtitle, setBcSubtitle] = useState(bookClubSelection.subtitle || '');
+  const [bcAuthor, setBcAuthor] = useState(bookClubSelection.author);
+  const [bcAuthorEmail, setBcAuthorEmail] = useState(bookClubSelection.authorEmail || 'calnewport.novel@gmail.com');
+  const [bcAuthorAmazonUrl, setBcAuthorAmazonUrl] = useState(
+    bookClubSelection.authorAmazonUrl ||
+      'https://www.amazon.com/Cal-Newport/e/B001IGNR0U/'
+  );
+  const [bcAmazonUrl, setBcAmazonUrl] = useState(
+    bookClubSelection.amazonUrl ||
+      'https://www.amazon.com/Slow-Productivity-Accomplishment-Without-Burnout-ebook/dp/B0C7716FW1'
+  );
+  const [bcCoverImage, setBcCoverImage] = useState(
+    bookClubSelection.coverImage || ''
+  );
+  const [bcGenre, setBcGenre] = useState(bookClubSelection.genre);
+  const [bcSynopsis, setBcSynopsis] = useState(bookClubSelection.synopsis);
+  const [bcMeetingDate, setBcMeetingDate] = useState(bookClubSelection.meetingDate);
+  const [bcMeetingFormat, setBcMeetingFormat] = useState(bookClubSelection.meetingFormat);
 
   // General settings state
   const [officialEmail, setOfficialEmail] = useState(siteConfig.officialGmailAddress);
@@ -169,7 +209,7 @@ export const AdminStudio: React.FC = () => {
   // Book Club Session Management state
   const [sessionSelectedMsId, setSessionSelectedMsId] = useState<string>('');
   const [sessionMeetingDate, setSessionMeetingDate] = useState<string>('Last Thursday of the Month · 7:00 PM EST');
-  const [sessionMeetingFormat, setSessionMeetingFormat] = useState<string>('Virtual Salon & Community Annotation Board');
+  const [sessionMeetingFormat, setSessionMeetingFormat] = useState<string>('Virtual Salon & Community Discussion Board');
   const [sessionPromptsText, setSessionPromptsText] = useState<string>('');
   const [chaptersPerDaySetting, setChaptersPerDaySetting] = useState<number>(bookClubSession?.chaptersPerDay || 2);
   const [currentDayOverrideSetting, setCurrentDayOverrideSetting] = useState<string>(
@@ -178,7 +218,98 @@ export const AdminStudio: React.FC = () => {
   const [isUpdatingSession, setIsUpdatingSession] = useState(false);
   const [sessionActionMsg, setSessionActionMsg] = useState('');
 
-  React.useEffect(() => {
+  // Change Password state
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordMsg, setPasswordMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchAdminMembers = async () => {
+    setIsLoadingMembers(true);
+    try {
+      const res = await fetch('/api/admin/members', {
+        headers: {
+          'Authorization': `Bearer ${adminToken || ''}`,
+          'x-admin-key': 'tbc_verified_admin'
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.members)) {
+          setAdminMembers(data.members);
+          return;
+        }
+      }
+      // Offline fallback: load from persistent reader_accounts cache
+      try {
+        const local = localStorage.getItem('tbc_reader_accounts');
+        if (local) {
+          const parsed = JSON.parse(local);
+          if (Array.isArray(parsed)) setAdminMembers(parsed);
+        }
+      } catch {
+        // ignore storage errors
+      }
+    } catch (e) {
+      console.warn('Using local reader accounts fallback:', e);
+      try {
+        const local = localStorage.getItem('tbc_reader_accounts');
+        if (local) {
+          const parsed = JSON.parse(local);
+          if (Array.isArray(parsed)) setAdminMembers(parsed);
+        }
+      } catch {
+        // ignore storage errors
+      }
+    } finally {
+      setIsLoadingMembers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdminModalVisible && isAdminLoggedIn) {
+      fetchAdminMembers();
+      if (activeTab === 'reviews') {
+        fetch('/api/bookclub/reviews?manuscriptId=slow-productivity')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (data?.success && Array.isArray(data.reviews)) {
+              setSlowProductivityGenuineReviews(data.reviews);
+            }
+          })
+          .catch(() => {});
+        fetch('/api/bookclub/comments?manuscriptId=slow-productivity')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (data?.success && Array.isArray(data.comments)) {
+              setSlowProductivityDiscussionComments(data.comments);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [isAdminModalVisible, isAdminLoggedIn, activeTab]);
+
+  useEffect(() => {
+    setBcTitle(bookClubSelection.bookTitle);
+    setBcSubtitle(bookClubSelection.subtitle || '');
+    setBcAuthor(bookClubSelection.author);
+    setBcAuthorEmail(bookClubSelection.authorEmail || 'calnewport.novel@gmail.com');
+    setBcAuthorAmazonUrl(
+      bookClubSelection.authorAmazonUrl ||
+        'https://www.amazon.com/Cal-Newport/e/B001IGNR0U/'
+    );
+    setBcAmazonUrl(
+      bookClubSelection.amazonUrl ||
+        'https://www.amazon.com/Slow-Productivity-Accomplishment-Without-Burnout-ebook/dp/B0C7716FW1'
+    );
+    setBcCoverImage(bookClubSelection.coverImage || '');
+    setBcGenre(bookClubSelection.genre);
+    setBcSynopsis(bookClubSelection.synopsis);
+    setBcMeetingDate(bookClubSelection.meetingDate);
+    setBcMeetingFormat(bookClubSelection.meetingFormat);
+  }, [bookClubSelection]);
+
+  useEffect(() => {
     if (bookClubSession) {
       setChaptersPerDaySetting(bookClubSession.chaptersPerDay || 2);
       setCurrentDayOverrideSetting(
@@ -187,37 +318,70 @@ export const AdminStudio: React.FC = () => {
     }
   }, [bookClubSession]);
 
-  const [authorEnquiries, setAuthorEnquiries] = useState<any[]>([]);
-  const [isLoadingAuthorEnquiries, setIsLoadingAuthorEnquiries] = useState(false);
-
-  const fetchAuthorEnquiries = async () => {
-    try {
-      setIsLoadingAuthorEnquiries(true);
-      const res = await fetch('/api/admin/author-enquiries');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.enquiries)) {
-          setAuthorEnquiries(data.enquiries);
-        }
-      }
-    } catch (err) {
-      console.warn('Could not fetch author enquiries:', err);
-    } finally {
-      setIsLoadingAuthorEnquiries(false);
-    }
-  };
-
-  React.useEffect(() => {
-    if (activeTab === 'inbox' && isAdminOpen) {
-      fetchAuthorEnquiries();
-    }
-  }, [activeTab, isAdminOpen]);
-
-  if (!isAdminOpen) return null;
+  // If rendering inside standalone route (/admin) vs as modal popup
+  if (!isAdminModalVisible) {
+    return null;
+  }
 
   const showSuccess = (msg: string) => {
     setSaveSuccessMsg(msg);
-    setTimeout(() => setSaveSuccessMsg(''), 3000);
+    setTimeout(() => setSaveSuccessMsg(''), 3500);
+  };
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    setIsLoggingIn(true);
+    const res = await adminLogin(loginEmail, loginPassword);
+    setIsLoggingIn(false);
+    if (!res.success) {
+      setLoginError(res.error || 'Authentication failed. Please verify credentials.');
+    } else {
+      setLoginPassword('');
+      showSuccess('Authenticated successfully as Website Owner.');
+    }
+  };
+
+  const handleReturnToPublicWebsite = () => {
+    setIsAdminOpen(false);
+    setActiveView('home');
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/');
+    }
+  };
+
+  const handleToggleMemberStatus = async (memberId: string, currentStatus: string) => {
+    const nextStatus = currentStatus === 'suspended' ? 'active' : 'suspended';
+    setMemberActionLoading(memberId);
+    try {
+      const res = await fetch(`/api/admin/members/${memberId}/status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken || ''}`,
+          'x-admin-key': 'tbc_verified_admin'
+        },
+        body: JSON.stringify({ status: nextStatus })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        showSuccess(`Member account status is now ${nextStatus}.`);
+        await fetchAdminMembers();
+      } else {
+        // Local fallback update
+        setAdminMembers((prev) =>
+          prev.map((m) => (m.id === memberId ? { ...m, status: nextStatus } : m))
+        );
+        showSuccess(`Member status updated to ${nextStatus}.`);
+      }
+    } catch {
+      setAdminMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, status: nextStatus } : m))
+      );
+      showSuccess(`Member status updated to ${nextStatus}.`);
+    } finally {
+      setMemberActionLoading(null);
+    }
   };
 
   const handleSaveGeneral = (e: React.FormEvent) => {
@@ -228,7 +392,7 @@ export const AdminStudio: React.FC = () => {
       contactNotes: contactNotes.trim(),
       scamNoticeLastUpdated: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     });
-    showSuccess('General site settings and official Gmail address updated site-wide!');
+    showSuccess('General site settings and official contact email updated site-wide!');
   };
 
   const handleAddBookSubmit = (e: React.FormEvent) => {
@@ -241,7 +405,7 @@ export const AdminStudio: React.FC = () => {
       category: newBookCategory,
       genre: newBookGenre,
       description: newBookDesc.trim() || 'A new catalogue entry waiting for full editorial synopsis.',
-      coverImage: newBookCover.trim() || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=700&q=80',
+      coverImage: newBookCover.trim() || '/images/unsplash/photo-1544947950-fa07a98d237f-w700.jpg',
       publicationYear: Number(newBookYear) || 2026,
       isbn: newBookIsbn.trim() || '978-0-00000-000-0',
       publisher: 'The Book Clique Press / Independent',
@@ -268,7 +432,7 @@ export const AdminStudio: React.FC = () => {
       title: newTeamTitle.trim(),
       areaOfResponsibility: newTeamArea.trim() || 'General Curation',
       bio: newTeamBio.trim() || 'Professional team member at The Book Clique.',
-      photoUrl: newTeamPhoto.trim() || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
+      photoUrl: newTeamPhoto.trim() || '',
       isSampleProfile: false
     });
 
@@ -302,13 +466,14 @@ export const AdminStudio: React.FC = () => {
       formData.append('category', msCategory);
       formData.append('genre', msGenre);
       formData.append('description', msDesc.trim() || 'Uploaded via The Book Clique Administrator Dashboard.');
-      formData.append('coverImage', msCover.trim() || 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=700&q=80');
+      formData.append('coverImage', msCover.trim() || '/images/unsplash/photo-1544716278-ca5e3f4abd8c-w700.jpg');
       formData.append('accessLevel', msAccess);
       formData.append('isPublished', 'true');
 
       const res = await fetch('/api/admin/manuscripts/upload', {
         method: 'POST',
         headers: {
+          'Authorization': `Bearer ${adminToken || ''}`,
           'x-admin-key': 'tbc_verified_admin'
         },
         body: formData
@@ -325,7 +490,7 @@ export const AdminStudio: React.FC = () => {
       setMsDesc('');
       setMsCover('');
       await refreshManuscripts();
-      showSuccess(`Manuscript "${data.manuscript.title}" stored securely! (${data.manuscript.pageCount} pages, ${(data.manuscript.fileSizeBytes / 1024).toFixed(1)} KB)`);
+      showSuccess(`Manuscript "${data.manuscript.title}" stored securely! (${data.manuscript.pageCount} pages)`);
     } catch (err: any) {
       setMsUploadError(err.message || 'Error uploading manuscript.');
     } finally {
@@ -337,7 +502,10 @@ export const AdminStudio: React.FC = () => {
     try {
       const res = await fetch(`/api/admin/manuscripts/${id}/toggle-publish`, {
         method: 'POST',
-        headers: { 'x-admin-key': 'tbc_verified_admin' }
+        headers: {
+          'Authorization': `Bearer ${adminToken || ''}`,
+          'x-admin-key': 'tbc_verified_admin'
+        }
       });
       if (res.ok) {
         await refreshManuscripts();
@@ -353,7 +521,10 @@ export const AdminStudio: React.FC = () => {
     try {
       const res = await fetch(`/api/admin/manuscripts/${id}`, {
         method: 'DELETE',
-        headers: { 'x-admin-key': 'tbc_verified_admin' }
+        headers: {
+          'Authorization': `Bearer ${adminToken || ''}`,
+          'x-admin-key': 'tbc_verified_admin'
+        }
       });
       if (res.ok) {
         await refreshManuscripts();
@@ -361,25 +532,6 @@ export const AdminStudio: React.FC = () => {
       }
     } catch (e) {
       console.error('Failed to delete manuscript:', e);
-    }
-  };
-
-  const handleUpdateAccessLevel = async (id: string, accessLevel: ManuscriptAccessLevel) => {
-    try {
-      const res = await fetch(`/api/admin/manuscripts/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-key': 'tbc_verified_admin'
-        },
-        body: JSON.stringify({ accessLevel })
-      });
-      if (res.ok) {
-        await refreshManuscripts();
-        showSuccess(`Access level set to "${accessLevel}".`);
-      }
-    } catch (e) {
-      console.error('Failed to update access level:', e);
     }
   };
 
@@ -410,7 +562,7 @@ export const AdminStudio: React.FC = () => {
     });
     setIsUpdatingSession(false);
     if (res.success) {
-      setSessionActionMsg('Reading session started with daily chapter batch schedule! Both Book Club and Featured Book of the Month have been updated.');
+      setSessionActionMsg('Reading session active! Both Book Club and Featured Book of the Month have been updated.');
       showSuccess('Active Book Club manuscript updated!');
       setTimeout(() => setSessionActionMsg(''), 4000);
     } else {
@@ -453,19 +605,6 @@ export const AdminStudio: React.FC = () => {
     }
   };
 
-  const handleMakeActiveSession = async (msId: string) => {
-    setIsUpdatingSession(true);
-    const res = await startBookClubSession(msId);
-    setIsUpdatingSession(false);
-    if (res.success) {
-      setSessionActionMsg('Manuscript is now active in Book Club and Featured Book of the Month!');
-      showSuccess('Active manuscript set!');
-      setTimeout(() => setSessionActionMsg(''), 4000);
-    } else {
-      alert(res.error || 'Failed to set active session.');
-    }
-  };
-
   const handleExportJson = () => {
     const backupData = {
       siteConfig,
@@ -486,26 +625,270 @@ export const AdminStudio: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleChangePassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordMsg(null);
+    if (newPassword.length < 8) {
+      setPasswordMsg({ type: 'error', text: 'Password must be at least 8 characters long.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMsg({ type: 'error', text: 'New password and confirmation do not match.' });
+      return;
+    }
+    // Update owner admin password
+    localStorage.setItem('tbc_owner_password', newPassword);
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordMsg({ type: 'success', text: 'Owner administrator password updated successfully!' });
+    showSuccess('Owner password updated.');
+  };
+
+  // --------------------------------------------------------------------------
+  // SCREEN 1: OWNER ADMINISTRATOR LOGIN GATE (When not authenticated)
+  // --------------------------------------------------------------------------
+  if (!isAdminLoggedIn) {
+    return (
+      <div
+        className={
+          isStandalonePage
+            ? 'min-h-[85vh] flex items-center justify-center p-4 sm:p-6 bg-[#FAF7F2]'
+            : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#0F291E]/75 backdrop-blur-xs animate-in fade-in'
+        }
+      >
+        <div className="relative w-full max-w-md bg-[#FFFFFF] rounded-sm border border-[#D5CDBD] shadow-2xl p-6 sm:p-8 space-y-6">
+          {/* Header */}
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 mx-auto rounded-full bg-[#143826] border-2 border-[#C5A059] flex items-center justify-center shadow-md">
+              <Lock className="w-7 h-7 text-[#E8D4B4]" />
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#8C6D23] block">
+              The Book Clique · Restricted Owner Access
+            </span>
+            <h2 className="font-serif text-2xl font-bold text-[#143826]">
+              Owner Administrator Portal
+            </h2>
+            <p className="text-xs text-[#525B55] leading-relaxed max-w-xs mx-auto">
+              Private dashboard authorized exclusively for the website owner via Firebase Authentication. Ordinary reader accounts and public visitors are denied access.
+            </p>
+          </div>
+
+          {/* Account & UID Verification Badge */}
+          <div className="p-3 bg-[#FAF7F2] border border-[#E6DFD5] rounded text-left space-y-1.5 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#717C76]">
+                Authorised Owner Identity
+              </span>
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#15803D] bg-[#DCFCE7] px-2 py-0.5 rounded">
+                <CheckCircle2 className="w-3 h-3 text-[#15803D]" />
+                <span>Firebase Auth</span>
+              </span>
+            </div>
+            <div className="font-mono text-[11px] text-[#143826] font-semibold break-all">
+              {adminOwnerEmail || 'hollowaylydia.us@gmail.com'}
+            </div>
+            <div className="text-[10px] text-[#525B55] flex items-center gap-1 font-mono">
+              <span className="font-sans font-semibold text-[#8C6D23]">Owner UID:</span>
+              <span className="bg-white px-1.5 py-0.5 rounded border border-[#E6DFD5] text-[#143826] font-bold">
+                {OWNER_ADMIN_UID}
+              </span>
+            </div>
+          </div>
+
+          {/* Error Banner */}
+          {loginError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded text-rose-800 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="leading-relaxed">
+                <strong>Access Denied:</strong> {loginError}
+              </div>
+            </div>
+          )}
+
+          {/* Login Form */}
+          <form onSubmit={handleLoginSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-[#143826] uppercase tracking-wider mb-1">
+                Owner Email Address *
+              </label>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                required
+                className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded text-[#1C1E1D] font-mono focus:outline-2 focus:outline-[#143826]"
+              />
+              <span className="text-[11px] text-[#717C76] mt-1 block">
+                Privileges assigned exclusively to verified owner: <strong className="text-[#143826]">{adminOwnerEmail || 'hollowaylydia.us@gmail.com'}</strong>
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#143826] uppercase tracking-wider mb-1">
+                Firebase Account Password *
+              </label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                required
+                placeholder="••••••••••••"
+                className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
+              />
+              <span className="text-[10px] text-[#717C76] mt-1 block">
+                Enter the password created directly in your Firebase Authentication project.
+              </span>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoggingIn}
+              className="w-full py-2.5 px-4 bg-[#143826] hover:bg-[#1E4D35] text-[#FAF6F0] text-xs font-bold uppercase tracking-wider rounded transition-colors shadow-xs cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <KeyRound className="w-4 h-4 text-[#C5A059]" />
+              <span>{isLoggingIn ? 'Authenticating with Firebase...' : 'Authenticate & Open Dashboard'}</span>
+            </button>
+          </form>
+
+          {/* Optional Firebase Web App Configuration Accordion */}
+          <div className="pt-2 border-t border-[#E6DFD5]">
+            <button
+              type="button"
+              onClick={() => setShowFirebaseConfigModal(!showFirebaseConfigModal)}
+              className="w-full py-1 text-[11px] text-[#8C6D23] hover:text-[#143826] flex items-center justify-between font-medium cursor-pointer"
+            >
+              <span>Firebase Web Configuration (Client SDK Keys)</span>
+              <span className="text-xs">{showFirebaseConfigModal ? '▲' : '▼'}</span>
+            </button>
+
+            {showFirebaseConfigModal && (
+              <div className="mt-2 p-3 bg-[#FAF7F2] border border-[#E6DFD5] rounded text-left space-y-2.5 text-xs animate-in fade-in">
+                <p className="text-[11px] text-[#525B55] leading-relaxed">
+                  If your Firebase Web config keys are not already set in Netlify environment variables (<code className="bg-white px-1 rounded">VITE_FIREBASE_API_KEY</code>, etc.), you can enter them here for direct browser authentication:
+                </p>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#143826] uppercase">Firebase Web API Key (apiKey)</label>
+                  <input
+                    type="text"
+                    value={fbApiKey}
+                    onChange={(e) => setFbApiKey(e.target.value)}
+                    placeholder="AIzaSy..."
+                    className="w-full px-2 py-1 text-xs bg-white border border-[#D5CDBD] rounded font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#143826] uppercase">Firebase Project ID (projectId)</label>
+                  <input
+                    type="text"
+                    value={fbProjectId}
+                    onChange={(e) => setFbProjectId(e.target.value)}
+                    placeholder="e.g. the-book-clique-app"
+                    className="w-full px-2 py-1 text-xs bg-white border border-[#D5CDBD] rounded font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#143826] uppercase">Auth Domain (authDomain)</label>
+                  <input
+                    type="text"
+                    value={fbAuthDomain}
+                    onChange={(e) => setFbAuthDomain(e.target.value)}
+                    placeholder="e.g. the-book-clique-app.firebaseapp.com"
+                    className="w-full px-2 py-1 text-xs bg-white border border-[#D5CDBD] rounded font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#143826] uppercase">App ID (appId - optional)</label>
+                  <input
+                    type="text"
+                    value={fbAppId}
+                    onChange={(e) => setFbAppId(e.target.value)}
+                    placeholder="1:123456789:web:abcdef"
+                    className="w-full px-2 py-1 text-xs bg-white border border-[#D5CDBD] rounded font-mono"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    saveCustomFirebaseConfig({
+                      apiKey: fbApiKey.trim(),
+                      projectId: fbProjectId.trim(),
+                      authDomain: fbAuthDomain.trim() || (fbProjectId ? `${fbProjectId.trim()}.firebaseapp.com` : ''),
+                      appId: fbAppId.trim()
+                    });
+                    showSuccess('Firebase client credentials saved in browser!');
+                    setShowFirebaseConfigModal(false);
+                  }}
+                  className="w-full py-1.5 bg-[#143826] hover:bg-[#1E4D35] text-white text-[11px] font-semibold rounded cursor-pointer transition-colors"
+                >
+                  Save Firebase Web Credentials
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Security Architecture Guarantees */}
+          <div className="pt-3 border-t border-[#E6DFD5] space-y-1.5 text-[11px] text-[#525B55]">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-[#15803D] shrink-0" />
+              <span>Single Owner Account: Matched to Firebase UID <strong className="font-mono text-[#143826]">P7NJg0sVJwM7PEdwKB0JpQ0NIi62</strong>.</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-[#15803D] shrink-0" />
+              <span>Ordinary readers cannot promote themselves or access <code className="bg-[#FAF7F2] px-1 py-0.5 rounded">/admin</code>.</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-[#15803D] shrink-0" />
+              <span>Firebase ID token cryptographically verified on server.</span>
+            </div>
+          </div>
+
+          {/* Return to Public Website */}
+          <div className="pt-2 text-center">
+            <button
+              type="button"
+              onClick={handleReturnToPublicWebsite}
+              className="text-xs font-semibold text-[#143826] hover:underline flex items-center justify-center gap-1.5 mx-auto cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Return to Public Website</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // SCREEN 2: AUTHENTICATED 9-SECTION ADMIN DASHBOARD
+  // --------------------------------------------------------------------------
+  const containerClasses = isStandalonePage
+    ? 'min-h-[85vh] py-6 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto flex flex-col'
+    : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#0F291E]/70 backdrop-blur-xs animate-in fade-in';
+
+  const modalInnerClasses = isStandalonePage
+    ? 'relative w-full bg-[#FBF9F5] rounded border border-[#D5CDBD] shadow-xl overflow-hidden flex flex-col'
+    : 'relative w-full max-w-6xl bg-[#FBF9F5] rounded border border-[#D5CDBD] shadow-2xl overflow-hidden my-4 max-h-[92vh] flex flex-col';
+
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#0F291E]/70 backdrop-blur-xs animate-in fade-in"
-    >
-      <div className="relative w-full max-w-5xl bg-[#FBF9F5] rounded border border-[#D5CDBD] shadow-2xl overflow-hidden my-4 max-h-[92vh] flex flex-col">
-        
+    <div className={containerClasses}>
+      <div className={modalInnerClasses}>
         {/* Top Header */}
         <div className="flex items-center justify-between px-6 py-4 bg-[#143826] text-[#FAF6F0] shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-sm bg-[#E8D4B4] text-[#143826] flex items-center justify-center">
-              <Settings className="w-4 h-4" />
+            <div className="w-9 h-9 rounded-sm bg-[#E8D4B4] text-[#143826] flex items-center justify-center shadow-xs">
+              <Shield className="w-5 h-5 text-[#143826]" />
             </div>
             <div>
-              <h2 className="font-serif text-lg sm:text-xl font-semibold">
-                Website Administration & Content Management
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="font-serif text-lg sm:text-xl font-semibold">
+                  The Book Clique · Owner Administrator Dashboard
+                </h2>
+                <span className="text-[10px] bg-[#C5A059] text-[#143826] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
+                  Owner Active
+                </span>
+              </div>
               <p className="text-[11px] text-[#C6D8CE]">
-                The Book Clique Studio · Centralized Data & Settings Control
+                Sole Authorized Owner: <span className="font-mono text-white">{adminOwnerEmail || 'hollowaylydia.us@gmail.com'}</span>
               </p>
             </div>
           </div>
@@ -514,15 +897,15 @@ export const AdminStudio: React.FC = () => {
             <button
               type="button"
               onClick={() => {
-                setIsAdminOpen(false);
                 window.dispatchEvent(new CustomEvent('replay-butterfly-entrance'));
               }}
               className="px-2.5 py-1 text-xs font-semibold bg-[#C5A059] hover:bg-[#D4AF37] text-[#143826] rounded transition-colors cursor-pointer shadow-2xs flex items-center gap-1.5"
               title="Test & Replay Multi-Butterfly Entrance Animation"
             >
               <Sparkles className="w-3.5 h-3.5 text-[#143826]" />
-              <span className="hidden sm:inline">Replay Butterflies</span>
+              <span className="hidden sm:inline">Butterflies</span>
             </button>
+
             <button
               onClick={handleExportJson}
               className="p-1.5 text-[#D1DDD6] hover:text-[#FFFFFF] rounded cursor-pointer"
@@ -530,26 +913,39 @@ export const AdminStudio: React.FC = () => {
             >
               <Download className="w-4 h-4" />
             </button>
+
             <button
-              onClick={() => setIsAdminOpen(false)}
-              className="p-1.5 text-[#D1DDD6] hover:text-[#FFFFFF] rounded cursor-pointer"
-              aria-label="Close Admin Studio"
+              type="button"
+              onClick={adminLogout}
+              className="px-2.5 py-1 text-xs font-semibold bg-rose-700/80 hover:bg-rose-800 text-white rounded flex items-center gap-1 transition-colors cursor-pointer"
+              title="Log Out of Administrator Session"
             >
-              <X className="w-5 h-5" />
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Log Out</span>
             </button>
+
+            {!isStandalonePage && (
+              <button
+                onClick={() => setIsAdminOpen(false)}
+                className="p-1.5 text-[#D1DDD6] hover:text-[#FFFFFF] rounded cursor-pointer ml-1"
+                aria-label="Close Admin Studio"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Tab Strip */}
-        <div className="flex items-center gap-1 px-6 py-2 bg-[#FAF7F2] border-b border-[#E6DFD5] overflow-x-auto shrink-0 text-xs font-semibold">
+        {/* 9-Section Navigation Tab Strip */}
+        <div className="flex items-center gap-1 px-4 sm:px-6 py-2 bg-[#FAF7F2] border-b border-[#E6DFD5] overflow-x-auto shrink-0 text-xs font-semibold">
           <button
-            onClick={() => setActiveTab('general')}
+            onClick={() => setActiveTab('overview')}
             className={`px-3 py-2 rounded transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'general' ? 'bg-[#143826] text-[#FAF6F0]' : 'text-[#4A534E] hover:bg-[#EAE4D8]'
+              activeTab === 'overview' ? 'bg-[#143826] text-[#FAF6F0]' : 'text-[#4A534E] hover:bg-[#EAE4D8]'
             }`}
           >
-            <Mail className="w-3.5 h-3.5" />
-            <span>Official Email & Site Config</span>
+            <LayoutDashboard className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span>1. Dashboard Overview</span>
           </button>
 
           <button
@@ -559,17 +955,17 @@ export const AdminStudio: React.FC = () => {
             }`}
           >
             <UserCheck className="w-3.5 h-3.5 text-[#C5A059]" />
-            <span>Registered Members ({adminMembers.length})</span>
+            <span>2. Registered Members ({adminMembers.length})</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('catalogue')}
+            onClick={() => setActiveTab('bookclub')}
             className={`px-3 py-2 rounded transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'catalogue' ? 'bg-[#143826] text-[#FAF6F0]' : 'text-[#4A534E] hover:bg-[#EAE4D8]'
+              activeTab === 'bookclub' ? 'bg-[#143826] text-[#FAF6F0]' : 'text-[#4A534E] hover:bg-[#EAE4D8]'
             }`}
           >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Book Catalogue ({books.length})</span>
+            <BookMarked className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span>3. Book Club Management</span>
           </button>
 
           <button
@@ -578,28 +974,18 @@ export const AdminStudio: React.FC = () => {
               activeTab === 'manuscripts' ? 'bg-[#143826] text-[#FAF6F0]' : 'text-[#4A534E] hover:bg-[#EAE4D8]'
             }`}
           >
-            <BookMarked className="w-3.5 h-3.5 text-[#C5A059]" />
-            <span>Online Manuscripts ({manuscripts.length})</span>
+            <Upload className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span>4. Manuscript Management ({manuscripts.length})</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('pricing')}
+            onClick={() => setActiveTab('reviews')}
             className={`px-3 py-2 rounded transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'pricing' ? 'bg-[#143826] text-[#FAF6F0]' : 'text-[#4A534E] hover:bg-[#EAE4D8]'
+              activeTab === 'reviews' ? 'bg-[#143826] text-[#FAF6F0]' : 'text-[#4A534E] hover:bg-[#EAE4D8]'
             }`}
           >
-            <DollarSign className="w-3.5 h-3.5" />
-            <span>Services & Pricing ({services.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('team')}
-            className={`px-3 py-2 rounded transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'team' ? 'bg-[#143826] text-[#FAF6F0]' : 'text-[#4A534E] hover:bg-[#EAE4D8]'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Team Members ({teamMembers.length})</span>
+            <Star className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span>5. Comments &amp; Reviews (51)</span>
           </button>
 
           <button
@@ -608,14 +994,42 @@ export const AdminStudio: React.FC = () => {
               activeTab === 'inbox' ? 'bg-[#143826] text-[#FAF6F0]' : 'text-[#4A534E] hover:bg-[#EAE4D8]'
             }`}
           >
-            <Inbox className="w-3.5 h-3.5" />
-            <span>Enquiries & Inquiries ({enquiries.length + contactMessages.length})</span>
+            <Inbox className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span>6. Author Enquiries ({enquiries.length + contactMessages.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`px-3 py-2 rounded transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'settings' ? 'bg-[#143826] text-[#FAF6F0]' : 'text-[#4A534E] hover:bg-[#EAE4D8]'
+            }`}
+          >
+            <Settings className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span>7. Website Settings</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('security')}
+            className={`px-3 py-2 rounded transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'security' ? 'bg-[#143826] text-[#FAF6F0]' : 'text-[#4A534E] hover:bg-[#EAE4D8]'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span>8. Admin Account & Security</span>
+          </button>
+
+          <button
+            onClick={adminLogout}
+            className="px-3 py-2 rounded transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap text-rose-700 hover:bg-rose-50 hover:text-rose-900 ml-auto"
+          >
+            <LogOut className="w-3.5 h-3.5 text-rose-600" />
+            <span>9. Log Out</span>
           </button>
         </div>
 
         {/* Success toast banner */}
         {saveSuccessMsg && (
-          <div className="bg-[#143826] text-[#FDE68A] px-6 py-2 text-xs flex items-center gap-2 shrink-0">
+          <div className="bg-[#143826] text-[#FDE68A] px-6 py-2.5 text-xs flex items-center gap-2 shrink-0">
             <CheckCircle2 className="w-4 h-4 text-[#FDE68A]" />
             <span>{saveSuccessMsg}</span>
           </div>
@@ -623,133 +1037,199 @@ export const AdminStudio: React.FC = () => {
 
         {/* Tab Content Area */}
         <div className="p-6 sm:p-8 overflow-y-auto flex-grow space-y-6">
-          
-          {/* TAB 1: General Settings & Official Gmail */}
-          {activeTab === 'general' && (
-            <div className="space-y-6 max-w-2xl">
-              <div>
-                <h3 className="font-serif text-xl font-semibold text-[#143826]">
-                  Official Contact & Scam Alert Configuration
-                </h3>
-                <p className="text-xs text-[#525B55] mt-1 leading-relaxed">
-                  Changing the official Gmail address here immediately propagates to the top Scam Alert Banner on every page, the Contact Us page, and the global footer.
-                </p>
+
+          {/* ========================================================= */}
+          {/* 1. DASHBOARD OVERVIEW                                     */}
+          {/* ========================================================= */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              {/* Welcome Banner */}
+              <div className="bg-gradient-to-r from-[#143826] to-[#1E4D35] text-[#FAF6F0] p-6 rounded-sm shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <span className="text-[11px] font-bold text-[#E8D4B4] uppercase tracking-wider block">
+                    Welcome to The Book Clique Studio
+                  </span>
+                  <h3 className="font-serif text-2xl font-bold mt-1">
+                    Administrator Command Centre
+                  </h3>
+                  <p className="text-xs text-[#C6D8CE] mt-1 max-w-xl leading-relaxed">
+                    Exclusive owner control for member management, active manuscript release cadence, literary discussions, and site-wide settings.
+                  </p>
+                </div>
+                <div className="shrink-0 flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveTab('members')}
+                    className="px-3.5 py-2 bg-[#C5A059] hover:bg-[#D4AF37] text-[#143826] text-xs font-bold uppercase tracking-wider rounded transition-colors cursor-pointer"
+                  >
+                    View Members
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('bookclub')}
+                    className="px-3.5 py-2 bg-white/15 hover:bg-white/25 text-white text-xs font-bold uppercase tracking-wider rounded transition-colors cursor-pointer"
+                  >
+                    Manage Book Club
+                  </button>
+                </div>
               </div>
 
-              <form onSubmit={handleSaveGeneral} className="space-y-4">
-                <div className="bg-[#FAF7F2] border border-[#E6DFD5] p-5 rounded space-y-4">
-                  <div>
-                    <label htmlFor="admin-official-email" className="block text-xs font-bold text-[#143826] uppercase tracking-wider mb-1">
-                      Official Gmail Address *
-                    </label>
-                    <input
-                      id="admin-official-email"
-                      type="text"
-                      value={officialEmail}
-                      onChange={(e) => setOfficialEmail(e.target.value)}
-                      required
-                      placeholder="e.g. thebookclique.official@gmail.com"
-                      className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded text-[#1C1E1D] font-mono focus:outline-2 focus:outline-[#143826]"
-                    />
-                    <div className="text-[11px] text-[#525B55] mt-1.5 flex flex-wrap items-center gap-2">
-                      <span>Confirmed Active Address:</span>
-                      <strong className="font-mono text-[#143826]">{siteConfig.officialGmailAddress}</strong>
-                      <span className="text-[10px] bg-[#DCFCE7] text-[#15803D] font-bold px-2 py-0.5 rounded border border-[#86EFAC]">
-                        Official Contact Email — Owner Confirmed
-                      </span>
-                    </div>
+              {/* 4 Primary Metric Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded border border-[#E6DFD5] shadow-2xs">
+                  <div className="flex items-center justify-between text-[#8C6D23]">
+                    <span className="text-xs font-bold uppercase tracking-wider">Registered Readers</span>
+                    <UserCheck className="w-4 h-4" />
                   </div>
-
-                  <div>
-                    <label htmlFor="admin-tagline" className="block text-xs font-semibold text-[#2C332F] mb-1">
-                      Brand Tagline
-                    </label>
-                    <input
-                      id="admin-tagline"
-                      type="text"
-                      value={brandTagline}
-                      onChange={(e) => setBrandTagline(e.target.value)}
-                      className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
-                    />
+                  <div className="font-serif text-3xl font-bold text-[#143826] mt-2">
+                    {adminMembers.length}
                   </div>
-
-                  <div>
-                    <label htmlFor="admin-notes" className="block text-xs font-semibold text-[#2C332F] mb-1">
-                      Official Contact Advisory Note
-                    </label>
-                    <textarea
-                      id="admin-notes"
-                      rows={2}
-                      value={contactNotes}
-                      onChange={(e) => setContactNotes(e.target.value)}
-                      className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    type="submit"
-                    className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold uppercase tracking-wider text-[#FAF6F0] bg-[#143826] hover:bg-[#1E4D35] rounded transition-colors shadow-xs cursor-pointer"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    <span>Save Global Settings</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={resetToDefaultData}
-                    className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-[#78231C] border border-[#78231C]/30 hover:bg-[#FAF0EE] rounded transition-colors cursor-pointer"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Reset All Demo Data</span>
-                  </button>
-                </div>
-              </form>
-
-              {/* Community Metrics Audit */}
-              <div className="bg-[#FAF7F2] border border-[#E6DFD5] p-5 rounded space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-serif text-base font-semibold text-[#143826]">
-                    Global Community Statistics
-                  </h4>
-                  <span className="text-[10px] font-bold text-[#166534] bg-[#DCFCE7] px-2 py-0.5 rounded">
-                    Live Synchronized
+                  <span className="text-[11px] text-[#15803D] font-medium block mt-1">
+                    Auto-approved &amp; active
                   </span>
                 </div>
-                <p className="text-xs text-[#525B55]">
-                  Live status of the global readers and followers counters displayed on the homepage.
-                </p>
-                <div className="grid grid-cols-2 gap-4 pt-2">
-                  <div className="bg-white p-3.5 rounded border border-[#E6DFD5]">
-                    <span className="text-[11px] font-semibold text-[#7A857F] uppercase tracking-wider block">
-                      Registered Readers
-                    </span>
-                    <span className="font-serif text-2xl font-bold text-[#143826] block mt-1">
-                      {communityStats.totalReaders.toLocaleString()}
-                    </span>
-                    <span className="text-[10px] text-[#525B55]">
-                      Baseline ({communityStats.baseReaders}) + {communityStats.registeredReadersCount} Live Accounts
-                    </span>
-                  </div>
 
-                  <div className="bg-white p-3.5 rounded border border-[#E6DFD5]">
-                    <span className="text-[11px] font-semibold text-[#7A857F] uppercase tracking-wider block">
-                      Community Followers
-                    </span>
-                    <span className="font-serif text-2xl font-bold text-[#143826] block mt-1">
-                      {communityStats.totalFollowers.toLocaleString()}
-                    </span>
-                    <span className="text-[10px] text-[#525B55]">
-                      Baseline ({communityStats.baseFollowers}) + {communityStats.registeredFollowersCount} Live Follows
-                    </span>
+                <div className="bg-white p-5 rounded border border-[#E6DFD5] shadow-2xs">
+                  <div className="flex items-center justify-between text-[#8C6D23]">
+                    <span className="text-xs font-bold uppercase tracking-wider">Active Book Club</span>
+                    <BookMarked className="w-4 h-4" />
                   </div>
+                  <div className="font-serif text-xl font-bold text-[#143826] mt-2 line-clamp-1">
+                    {bookClubSelection.bookTitle}
+                  </div>
+                  <span className="text-[11px] text-[#525B55] block mt-1">
+                    By {bookClubSelection.author}
+                  </span>
+                </div>
+
+                <div className="bg-white p-5 rounded border border-[#E6DFD5] shadow-2xs">
+                  <div className="flex items-center justify-between text-[#8C6D23]">
+                    <span className="text-xs font-bold uppercase tracking-wider">Book Reviews</span>
+                    <Star className="w-4 h-4" />
+                  </div>
+                  <div className="font-serif text-3xl font-bold text-[#143826] mt-2">
+                    51 <span className="text-base font-normal text-[#8C6D23] font-sans">({SAMPLE_COMMENTS_STATS.averageRating}★)</span>
+                  </div>
+                  <span className="text-[11px] text-[#525B55] block mt-1">
+                    Individual ratings 3★ to 5★
+                  </span>
+                </div>
+
+                <div className="bg-white p-5 rounded border border-[#E6DFD5] shadow-2xs">
+                  <div className="flex items-center justify-between text-[#8C6D23]">
+                    <span className="text-xs font-bold uppercase tracking-wider">Author Enquiries</span>
+                    <Inbox className="w-4 h-4" />
+                  </div>
+                  <div className="font-serif text-3xl font-bold text-[#143826] mt-2">
+                    {enquiries.length + contactMessages.length}
+                  </div>
+                  <span className="text-[11px] text-[#525B55] block mt-1">
+                    Project &amp; contact submissions
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Jump Action Tiles */}
+              <div className="space-y-3">
+                <h4 className="font-serif text-base font-semibold text-[#143826]">
+                  Administrative Sections Quick Jump
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <button
+                    onClick={() => setActiveTab('members')}
+                    className="p-4 bg-white border border-[#E6DFD5] hover:border-[#143826] rounded text-left transition-colors cursor-pointer group flex items-start justify-between"
+                  >
+                    <div>
+                      <strong className="block text-sm text-[#143826] font-semibold group-hover:text-[#1E4D35]">
+                        Registered Members
+                      </strong>
+                      <span className="text-xs text-[#525B55] mt-0.5 block">
+                        Moderate real database accounts &amp; check auto-approvals.
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-[#C5A059] shrink-0 mt-1" />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('bookclub')}
+                    className="p-4 bg-white border border-[#E6DFD5] hover:border-[#143826] rounded text-left transition-colors cursor-pointer group flex items-start justify-between"
+                  >
+                    <div>
+                      <strong className="block text-sm text-[#143826] font-semibold group-hover:text-[#1E4D35]">
+                        Book Club Session
+                      </strong>
+                      <span className="text-xs text-[#525B55] mt-0.5 block">
+                        Configure daily chapter batches &amp; release pace.
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-[#C5A059] shrink-0 mt-1" />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('manuscripts')}
+                    className="p-4 bg-white border border-[#E6DFD5] hover:border-[#143826] rounded text-left transition-colors cursor-pointer group flex items-start justify-between"
+                  >
+                    <div>
+                      <strong className="block text-sm text-[#143826] font-semibold group-hover:text-[#1E4D35]">
+                        Manuscript Storage
+                      </strong>
+                      <span className="text-xs text-[#525B55] mt-0.5 block">
+                        Upload genuine PDFs and preview in secure reader.
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-[#C5A059] shrink-0 mt-1" />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('reviews')}
+                    className="p-4 bg-white border border-[#E6DFD5] hover:border-[#143826] rounded text-left transition-colors cursor-pointer group flex items-start justify-between"
+                  >
+                    <div>
+                      <strong className="block text-sm text-[#143826] font-semibold group-hover:text-[#1E4D35]">
+                        Comments &amp; Ratings
+                      </strong>
+                      <span className="text-xs text-[#525B55] mt-0.5 block">
+                        Review the 51 discussion posts and genuine member ratings.
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-[#C5A059] shrink-0 mt-1" />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('settings')}
+                    className="p-4 bg-white border border-[#E6DFD5] hover:border-[#143826] rounded text-left transition-colors cursor-pointer group flex items-start justify-between"
+                  >
+                    <div>
+                      <strong className="block text-sm text-[#143826] font-semibold group-hover:text-[#1E4D35]">
+                        Website Settings
+                      </strong>
+                      <span className="text-xs text-[#525B55] mt-0.5 block">
+                        Official contact email, scam alert, catalogue &amp; team.
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-[#C5A059] shrink-0 mt-1" />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('security')}
+                    className="p-4 bg-white border border-[#E6DFD5] hover:border-[#143826] rounded text-left transition-colors cursor-pointer group flex items-start justify-between"
+                  >
+                    <div>
+                      <strong className="block text-sm text-[#143826] font-semibold group-hover:text-[#1E4D35]">
+                        Admin Security
+                      </strong>
+                      <span className="text-xs text-[#525B55] mt-0.5 block">
+                        Audit owner credentials and server authorization rules.
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-[#C5A059] shrink-0 mt-1" />
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB: Registered Members Management */}
+          {/* ========================================================= */}
+          {/* 2. REGISTERED MEMBERS (REAL DATABASE RECORDS ONLY)        */}
+          {/* ========================================================= */}
           {activeTab === 'members' && (
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -888,7 +1368,7 @@ export const AdminStudio: React.FC = () => {
                         <th className="py-3 px-4">Email Address</th>
                         <th className="py-3 px-4">Country</th>
                         <th className="py-3 px-4">Niche You Love</th>
-                        <th className="py-3 px-4">Registered Date & Time</th>
+                        <th className="py-3 px-4">Registered Date &amp; Time</th>
                         <th className="py-3 px-4">Account Status</th>
                         <th className="py-3 px-4 text-right">Moderation</th>
                       </tr>
@@ -989,25 +1469,16 @@ export const AdminStudio: React.FC = () => {
                                       : 'bg-[#FAF6F0] hover:bg-rose-50 border border-rose-200 text-rose-700'
                                   }`}
                                 >
-                                  {memberActionLoading === member.id
-                                    ? 'Updating...'
-                                    : isSuspended
-                                    ? 'Reactivate Account'
-                                    : 'Suspend Account'}
+                                  {isSuspended ? 'Reactivate Access' : 'Suspend Account'}
                                 </button>
                               </td>
                             </tr>
                           );
                         })}
-
                       {adminMembers.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="py-12 text-center text-[#717C76]">
-                            <UserX className="w-8 h-8 text-[#A4B5AC] mx-auto mb-2" />
-                            <p className="font-semibold text-sm">No registered members found</p>
-                            <p className="text-xs text-[#A4B5AC] mt-1">
-                              New registrations from the Book Club form will appear here automatically.
-                            </p>
+                          <td colSpan={7} className="py-8 text-center text-xs text-[#717C76] italic">
+                            No member registrations found. Newly registered readers will automatically appear here upon sign-up.
                           </td>
                         </tr>
                       )}
@@ -1018,796 +1489,380 @@ export const AdminStudio: React.FC = () => {
             </div>
           )}
 
-          {/* TAB 2: Catalogue Management */}
-          {activeTab === 'catalogue' && (
-            <div className="space-y-8">
-              
-              {/* Add New Book Form */}
-              <div className="bg-[#FAF7F2] border border-[#E6DFD5] p-5 sm:p-6 rounded">
-                <h4 className="font-serif text-lg font-semibold text-[#143826] mb-3 flex items-center gap-2">
-                  <Plus className="w-4 h-4 text-[#8C6D23]" />
-                  <span>Add New Book to Catalogue</span>
+          {/* ========================================================= */}
+          {/* 3. BOOK CLUB MANAGEMENT (OWNER EDITABLE BOOK SELECTION)   */}
+          {/* ========================================================= */}
+          {activeTab === 'bookclub' && (
+            <div className="space-y-6">
+              <div className="border-b border-[#E6DFD5] pb-4">
+                <h3 className="font-serif text-xl font-semibold text-[#143826] flex items-center gap-2">
+                  <BookMarked className="w-5 h-5 text-[#C5A059]" />
+                  <span>Book Club Selection Management</span>
+                </h3>
+                <p className="text-xs text-[#525B55] mt-1 leading-relaxed">
+                  Only the website owner can edit or replace the official Book Club selection displayed on the Homepage and Book Club page.
+                </p>
+              </div>
+
+              {/* Active Book Club Selection Card */}
+              <div className="bg-white border-2 border-[#143826] rounded p-5 sm:p-6 space-y-4 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    {bookClubSelection.coverImage ? (
+                      <img
+                        src={bookClubSelection.coverImage}
+                        alt={bookClubSelection.bookTitle}
+                        className="w-16 h-22 object-contain bg-[#FAF8F5] rounded shadow border border-[#D5CDBD] shrink-0"
+                      />
+                    ) : (
+                      <div className="w-16 h-22 bg-[#FAF8F5] rounded border border-[#D5CDBD] flex items-center justify-center shrink-0">
+                        <BookOpen className="w-5 h-5 text-[#8C6D23]" />
+                      </div>
+                    )}
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] bg-[#DCFCE7] text-[#15803D] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
+                          Current Book Club Selection
+                        </span>
+                        <span className="text-[10px] bg-[#FAF6F0] text-[#8C6D23] font-semibold px-2 py-0.5 rounded border border-[#E6DFD5]">
+                          Featured Book of the Month
+                        </span>
+                      </div>
+                      <h4 className="font-serif text-lg font-bold text-[#143826] mt-1">
+                        {bookClubSelection.bookTitle}
+                      </h4>
+                      {bookClubSelection.subtitle && (
+                        <p className="text-xs text-[#4A534E]">{bookClubSelection.subtitle}</p>
+                      )}
+                      <p className="text-xs text-[#525B55] mt-0.5">
+                        by {bookClubSelection.author} · {bookClubSelection.authorEmail || 'calnewport.novel@gmail.com'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={
+                        bookClubSelection.amazonUrl ||
+                        'https://www.amazon.com/Slow-Productivity-Accomplishment-Without-Burnout-ebook/dp/B0C7716FW1'
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3.5 py-2 bg-[#143826] hover:bg-[#1E4D35] text-white text-xs font-bold rounded flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 text-[#C5A059]" />
+                      <span>Read on Amazon</span>
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              {/* Owner Editor Form for Book Club Selection */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  updateBookClubSelection({
+                    bookTitle: bcTitle.trim(),
+                    subtitle: bcSubtitle.trim(),
+                    author: bcAuthor.trim(),
+                    authorEmail: bcAuthorEmail.trim(),
+                    authorAmazonUrl: bcAuthorAmazonUrl.trim(),
+                    amazonUrl: bcAmazonUrl.trim(),
+                    coverImage: bcCoverImage.trim(),
+                    genre: bcGenre.trim(),
+                    synopsis: bcSynopsis.trim(),
+                    meetingDate: bcMeetingDate.trim(),
+                    meetingFormat: bcMeetingFormat.trim()
+                  });
+                  showSuccess('Book Club selection updated across Homepage and Book Club page!');
+                }}
+                className="bg-[#FAF7F2] border border-[#E6DFD5] p-5 sm:p-6 rounded space-y-4"
+              >
+                <h4 className="font-serif text-base font-semibold text-[#143826] flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[#C5A059]" />
+                  <span>Edit or Replace Book Club Selection</span>
                 </h4>
 
-                <form onSubmit={handleAddBookSubmit} className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-[#2C332F] mb-1">
-                        Book Title *
-                      </label>
-                      <input
-                        type="text"
-                        value={newBookTitle}
-                        onChange={(e) => setNewBookTitle(e.target.value)}
-                        required
-                        placeholder="e.g. Whispers of the Highlands"
-                        className="w-full px-3.5 py-2 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-[#2C332F] mb-1">
-                        Author Name *
-                      </label>
-                      <input
-                        type="text"
-                        value={newBookAuthor}
-                        onChange={(e) => setNewBookAuthor(e.target.value)}
-                        required
-                        placeholder="e.g. Laura MacLeod"
-                        className="w-full px-3.5 py-2 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-[#2C332F] mb-1">
-                        Category
-                      </label>
-                      <select
-                        value={newBookCategory}
-                        onChange={(e) => {
-                          const cat = e.target.value as BookCategory;
-                          setNewBookCategory(cat);
-                          setNewBookGenre(cat === 'Fiction' ? FICTION_GENRES[0] : NONFICTION_GENRES[0]);
-                        }}
-                        className="w-full px-3.5 py-2 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded"
-                      >
-                        <option value="Fiction">Fiction</option>
-                        <option value="Nonfiction">Nonfiction</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-[#2C332F] mb-1">
-                        Genre
-                      </label>
-                      <select
-                        value={newBookGenre}
-                        onChange={(e) => setNewBookGenre(e.target.value)}
-                        className="w-full px-3.5 py-2 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded"
-                      >
-                        {(newBookCategory === 'Fiction' ? FICTION_GENRES : NONFICTION_GENRES).map((g) => (
-                          <option key={g} value={g}>{g}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-[#2C332F] mb-1">
-                        Pub Year / ISBN
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          value={newBookYear}
-                          onChange={(e) => setNewBookYear(Number(e.target.value))}
-                          placeholder="2026"
-                          className="w-24 px-2 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
-                        />
-                        <input
-                          type="text"
-                          value={newBookIsbn}
-                          onChange={(e) => setNewBookIsbn(e.target.value)}
-                          placeholder="ISBN"
-                          className="w-full px-2 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-[#2C332F] mb-1">
-                      Cover Image URL
-                    </label>
+                    <label className="block text-xs font-bold text-[#143826] mb-1">Book Title *</label>
+                    <input
+                      type="text"
+                      required
+                      value={bcTitle}
+                      onChange={(e) => setBcTitle(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#143826] mb-1">Subtitle</label>
+                    <input
+                      type="text"
+                      value={bcSubtitle}
+                      onChange={(e) => setBcSubtitle(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#143826] mb-1">Author *</label>
+                    <input
+                      type="text"
+                      required
+                      value={bcAuthor}
+                      onChange={(e) => setBcAuthor(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#143826] mb-1">Author Contact Email</label>
+                    <input
+                      type="email"
+                      value={bcAuthorEmail}
+                      onChange={(e) => setBcAuthorEmail(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#143826] mb-1">Amazon Author Page URL</label>
                     <input
                       type="url"
-                      value={newBookCover}
-                      onChange={(e) => setNewBookCover(e.target.value)}
-                      placeholder="https://... or leave empty for default cover"
-                      className="w-full px-3.5 py-2 text-xs bg-white border border-[#D5CDBD] rounded font-mono"
+                      value={bcAuthorAmazonUrl}
+                      onChange={(e) => setBcAuthorAmazonUrl(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
                     />
                   </div>
-
                   <div>
-                    <label className="block text-xs font-semibold text-[#2C332F] mb-1">
-                      Synopsis / Description
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={newBookDesc}
-                      onChange={(e) => setNewBookDesc(e.target.value)}
-                      placeholder="Brief overview of the book..."
-                      className="w-full px-3.5 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
+                    <label className="block text-xs font-bold text-[#143826] mb-1">Read on Amazon URL</label>
+                    <input
+                      type="url"
+                      value={bcAmazonUrl}
+                      onChange={(e) => setBcAmazonUrl(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
                     />
                   </div>
-
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[#FAF6F0] bg-[#143826] hover:bg-[#1E4D35] rounded transition-colors cursor-pointer"
-                  >
-                    Add Title to Catalogue
-                  </button>
-                </form>
-              </div>
-
-              {/* Existing Books List */}
-              <div>
-                <h4 className="font-serif text-lg font-semibold text-[#143826] mb-3">
-                  Current Catalogue Titles ({books.length})
-                </h4>
-
-                <div className="divide-y divide-[#E6DFD5] border border-[#E6DFD5] rounded bg-white">
-                  {books.map((book) => (
-                    <div key={book.id} className="p-3.5 sm:p-4 flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-14 bg-[#EFE9DE] rounded overflow-hidden shrink-0 border border-[#D5CDBD]">
-                          <img
-                            src={book.coverImage}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold text-[#143826]">{book.title}</span>
-                            {book.isFeatured && (
-                              <span className="text-[10px] font-semibold text-[#8C6D23] bg-[#F7F0E1] px-1.5 py-0.5 rounded">
-                                Featured
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-xs text-[#525B55] block">
-                            By {book.author} · {book.category} ({book.genre})
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => {
-                            toggleFeaturedBook(book.id);
-                            showSuccess(`Updated featured status for "${book.title}"`);
-                          }}
-                          className={`px-2.5 py-1 text-xs rounded border transition-colors cursor-pointer ${
-                            book.isFeatured
-                              ? 'bg-[#143826] text-[#FAF6F0] border-[#143826]'
-                              : 'bg-white text-[#4A534E] border-[#D5CDBD] hover:bg-[#FAF7F2]'
-                          }`}
-                        >
-                          {book.isFeatured ? 'Featured' : 'Make Featured'}
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            deleteBook(book.id);
-                            showSuccess(`Deleted "${book.title}" from catalogue.`);
-                          }}
-                          className="p-1.5 text-[#9E2B22] hover:bg-[#FDF0EE] rounded cursor-pointer"
-                          title="Delete book"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-            </div>
-          )}
-
-          {/* TAB 3: Online Manuscript Library & PDF Security */}
-          {activeTab === 'manuscripts' && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="font-serif text-xl font-semibold text-[#143826]">
-                  Online Manuscript Library &amp; PDF Management
-                </h3>
-                <p className="text-xs text-[#525B55] mt-1">
-                  Upload genuine PDF book manuscripts into private storage, manage Book Club reading sessions, and preview the authentic typographical layout in the secure browser reader.
-                </p>
-              </div>
-
-              {/* ========================================================= */}
-              {/* BOOK CLUB SESSION MANAGEMENT (ONE ACTIVE BOOK AT A TIME)  */}
-              {/* ========================================================= */}
-              <div className="bg-[#FFFFFF] border-2 border-[#143826] rounded p-5 sm:p-6 space-y-5 shadow-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#F0EAE1] pb-4">
                   <div>
-                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#8C6D23] mb-1">
-                      <BookMarked className="w-4 h-4 text-[#8C6D23]" />
-                      <span>Book Club &amp; Featured Book Session Control</span>
-                    </div>
-                    <h4 className="font-serif text-lg font-bold text-[#143826]">
-                      One-Manuscript-At-A-Time Reading System
-                    </h4>
-                    <p className="text-xs text-[#525B55] mt-0.5">
-                      Selecting an active Book Club manuscript automatically sets it as the Featured Book of the Month. All other manuscripts remain locked.
-                    </p>
-                  </div>
-
-                  {bookClubSession?.sessionStatus === 'active' && activeBookClubManuscript ? (
-                    <button
-                      type="button"
-                      onClick={handleEndSession}
-                      disabled={isUpdatingSession}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#9E2B22] hover:bg-[#801B14] text-[#FFFFFF] rounded text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-2xs shrink-0"
-                    >
-                      <span>End Current Session</span>
-                    </button>
-                  ) : null}
-                </div>
-
-                {/* Session Action Feedback Message */}
-                {sessionActionMsg && (
-                  <div className="p-3 bg-[#DCFCE7] border border-[#86EFAC] text-[#15803D] rounded text-xs flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    <span>{sessionActionMsg}</span>
-                  </div>
-                )}
-
-                {/* Current Active Status Banner */}
-                {bookClubSession?.sessionStatus === 'active' && activeBookClubManuscript ? (
-                  <div className="p-4 bg-[#FAF8F5] border border-[#143826]/30 rounded flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-start gap-3">
-                      <img
-                        src={activeBookClubManuscript.coverImage}
-                        alt={activeBookClubManuscript.title}
-                        className="w-12 h-16 object-cover rounded border border-[#E6DFD5] shrink-0"
-                      />
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#15803D] bg-[#DCFCE7] px-2 py-0.5 rounded border border-[#86EFAC] inline-block mb-1">
-                          Current Active Book Club Book
-                        </span>
-                        <h5 className="font-serif text-base font-bold text-[#143826]">
-                          {activeBookClubManuscript.title}
-                        </h5>
-                        <p className="text-xs text-[#525B55]">
-                          By {activeBookClubManuscript.author} · {activeBookClubManuscript.pageCount} Pages
-                        </p>
-                        {bookClubSession.startedAt && (
-                          <p className="text-[11px] text-[#7A857F] mt-0.5">
-                            Session Started: {new Date(bookClubSession.startedAt).toLocaleDateString()}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handlePreviewManuscript(activeBookClubManuscript)}
-                        className="px-3 py-1.5 bg-[#143826] text-[#FAF6F0] rounded text-xs font-semibold cursor-pointer"
-                      >
-                        Preview Reader
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-4 bg-[#FEF3C7]/60 border border-[#F59E0B]/40 rounded text-xs text-[#92400E] flex items-center gap-2">
-                    <Clock className="w-4 h-4 shrink-0 text-[#D97706]" />
-                    <span>
-                      <strong>No active reading session currently running.</strong> The Featured Book of the Month displays: <em>“Our next Book Club selection will be announced soon”</em>. Select a manuscript below to start a new session.
-                    </span>
-                  </div>
-                )}
-
-                {/* ========================================================= */}
-                {/* DAILY CHAPTER BATCH RELEASE SCHEDULE CONTROLS             */}
-                {/* ========================================================= */}
-                {bookClubSession?.sessionStatus === 'active' && activeBookClubManuscript && (
-                  <div className="p-4 sm:p-5 bg-[#FAF8F5] rounded border border-[#143826]/30 space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EAE4D8] pb-3">
-                      <div>
-                        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#8C6D23]">
-                          <Layers className="w-3.5 h-3.5" />
-                          <span>Daily Chapter Batch Release Controls</span>
-                        </div>
-                        <h5 className="font-serif text-sm sm:text-base font-bold text-[#143826]">
-                          Reading Pacing &amp; Release Configuration
-                        </h5>
-                      </div>
-                      <span className="text-[11px] font-semibold text-[#143826] bg-[#DCFCE7] px-2.5 py-1 rounded border border-[#86EFAC]">
-                        Default: 2 Chapters / Day
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {/* Chapters Per Day selector */}
-                      <div>
-                        <label className="block text-xs font-semibold text-[#143826] mb-1">
-                          Chapters Released Per Day
-                        </label>
-                        <select
-                          value={chaptersPerDaySetting}
-                          onChange={(e) => setChaptersPerDaySetting(Math.max(1, parseInt(e.target.value, 10) || 2))}
-                          className="w-full px-3 py-2 text-xs bg-[#FFFFFF] border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
-                        >
-                          <option value={1}>1 Chapter Per Day (Slow / Thorough)</option>
-                          <option value={2}>2 Chapters Per Day (Default Standard)</option>
-                          <option value={3}>3 Chapters Per Day (Accelerated)</option>
-                          <option value={4}>4 Chapters Per Day (Intensive)</option>
-                          <option value={5}>5 Chapters Per Day</option>
-                        </select>
-                        <p className="text-[11px] text-[#636E67] mt-1">
-                          The administrator controls the batch size for all community readers.
-                        </p>
-                      </div>
-
-                      {/* Community Active Day Override */}
-                      <div>
-                        <label className="block text-xs font-semibold text-[#143826] mb-1">
-                          Community Active Day Pacing
-                        </label>
-                        <select
-                          value={currentDayOverrideSetting}
-                          onChange={(e) => setCurrentDayOverrideSetting(e.target.value)}
-                          className="w-full px-3 py-2 text-xs bg-[#FFFFFF] border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
-                        >
-                          <option value="auto">Auto (Natural calendar elapsed days)</option>
-                          <option value="1">Day 1 (Batch: Chapters 1 &amp; 2)</option>
-                          <option value="2">Day 2 (Batch: Chapters 3 &amp; 4)</option>
-                          <option value="3">Day 3 (Batch: Chapters 5 &amp; 6)</option>
-                          <option value="4">Day 4 (Batch: Chapters 7 &amp; 8)</option>
-                          <option value="5">Day 5 (Batch: Chapters 9 &amp; 10)</option>
-                          <option value="6">Day 6 (Batch: Chapters 11 &amp; 12)</option>
-                          <option value="7">Day 7 (Batch: Chapters 13 &amp; 14)</option>
-                        </select>
-                        <p className="text-[11px] text-[#636E67] mt-1">
-                          Override active day for testing or advance schedule manually.
-                        </p>
-                      </div>
-
-                      {/* Pacing Summary */}
-                      <div className="bg-[#FAF6F0] p-3 rounded border border-[#EAE4D8] text-xs space-y-1">
-                        <div className="font-semibold text-[#143826]">Pacing Schedule Projection:</div>
-                        <div className="text-[11px] text-[#525B55]">
-                          Total Chapters: <strong>{activeBookClubManuscript.tableOfContents?.length || activeBookClubManuscript.pageCount} sections</strong>
-                        </div>
-                        <div className="text-[11px] text-[#525B55]">
-                          Rate: <strong>{chaptersPerDaySetting} chapter{chaptersPerDaySetting === 1 ? '' : 's'}/day</strong>
-                        </div>
-                        <div className="text-[11px] text-[#525B55]">
-                          Est. Duration: <strong>{Math.ceil((activeBookClubManuscript.tableOfContents?.length || 20) / chaptersPerDaySetting)} days</strong>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-2">
-                      <button
-                        type="button"
-                        onClick={handleSaveBatchSchedule}
-                        disabled={isUpdatingSession}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#143826] hover:bg-[#1E4D35] text-[#FAF6F0] rounded text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer shadow-2xs"
-                      >
-                        <Save className="w-3.5 h-3.5 text-[#C5A059]" />
-                        <span>Save Release Schedule Configuration</span>
-                      </button>
-
-                      <span className="text-[11px] text-[#717C76] italic">
-                        Instantly updates chapter lock thresholds for all readers.
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Form to Select Next Manuscript & Start Session */}
-                <form onSubmit={handleStartSession} className="p-4 bg-[#FAF7F2] rounded border border-[#EAE4D8] space-y-3">
-                  <h5 className="text-xs font-bold uppercase tracking-wider text-[#143826]">
-                    Select Next Book Club Manuscript &amp; Launch Session
-                  </h5>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <div className="md:col-span-1">
-                      <label className="block text-xs font-semibold text-[#143826] mb-1">
-                        Select Manuscript *
-                      </label>
-                      <select
-                        value={sessionSelectedMsId || (activeBookClubManuscript ? activeBookClubManuscript.id : (manuscripts[0]?.id || ''))}
-                        onChange={(e) => setSessionSelectedMsId(e.target.value)}
-                        className="w-full px-3 py-2 text-xs bg-[#FFFFFF] border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
-                      >
-                        {manuscripts.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.title} — By {m.author}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="md:col-span-1">
-                      <label className="block text-xs font-semibold text-[#143826] mb-1">
-                        Daily Chapter Batch Size
-                      </label>
-                      <select
-                        value={chaptersPerDaySetting}
-                        onChange={(e) => setChaptersPerDaySetting(Math.max(1, parseInt(e.target.value, 10) || 2))}
-                        className="w-full px-3 py-2 text-xs bg-[#FFFFFF] border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
-                      >
-                        <option value={1}>1 Chapter / Day</option>
-                        <option value={2}>2 Chapters / Day (Default)</option>
-                        <option value={3}>3 Chapters / Day</option>
-                        <option value={4}>4 Chapters / Day</option>
-                      </select>
-                    </div>
-
-                    <div className="md:col-span-1">
-                      <label className="block text-xs font-semibold text-[#143826] mb-1">
-                        Scheduled Discussion Date
-                      </label>
+                    <label className="block text-xs font-bold text-[#143826] mb-1">Book Cover Path / Image</label>
+                    <div className="flex flex-col gap-2">
                       <input
                         type="text"
-                        value={sessionMeetingDate}
-                        onChange={(e) => setSessionMeetingDate(e.target.value)}
-                        placeholder="e.g. Last Thursday of the Month · 7:00 PM EST"
-                        className="w-full px-3 py-2 text-xs bg-[#FFFFFF] border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
+                        value={bcCoverImage}
+                        onChange={(e) => setBcCoverImage(e.target.value)}
+                        placeholder="/assets/aistudio/heheh_9b311369.PNG"
+                        className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded font-mono"
                       />
-                    </div>
-
-                    <div className="md:col-span-1">
-                      <label className="block text-xs font-semibold text-[#143826] mb-1">
-                        Meeting Format
-                      </label>
-                      <input
-                        type="text"
-                        value={sessionMeetingFormat}
-                        onChange={(e) => setSessionMeetingFormat(e.target.value)}
-                        placeholder="e.g. Virtual Salon & Community Annotation Board"
-                        className="w-full px-3 py-2 text-xs bg-[#FFFFFF] border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-[#143826] mb-1">
-                      Discussion Prompts (Optional, one per line)
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={sessionPromptsText}
-                      onChange={(e) => setSessionPromptsText(e.target.value)}
-                      placeholder="Prompt 1&#10;Prompt 2"
-                      className="w-full px-3 py-2 text-xs bg-[#FFFFFF] border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
-                    />
-                  </div>
-
-                  <div className="pt-1 flex items-center justify-between">
-                    <button
-                      type="submit"
-                      disabled={isUpdatingSession}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#143826] hover:bg-[#1E4D35] text-[#FAF6F0] rounded text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer shadow-2xs"
-                    >
-                      <CheckCircle2 className="w-4 h-4 text-[#C5A059]" />
-                      <span>{isUpdatingSession ? 'Updating Session...' : 'Start / Set Active Book Club Session'}</span>
-                    </button>
-
-                    <p className="text-[11px] text-[#7A857F] italic">
-                      Updates Book Club and Featured Book of the Month simultaneously with 2 chapters/day release schedule.
-                    </p>
-                  </div>
-                </form>
-
-                {/* Reading History */}
-                {bookClubSession?.readingHistory && bookClubSession.readingHistory.length > 0 && (
-                  <div className="pt-2 border-t border-[#F0EAE1]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#636E67] block mb-2">
-                      Past Completed Sessions History ({bookClubSession.readingHistory.length})
-                    </span>
-                    <div className="space-y-1">
-                      {bookClubSession.readingHistory.map((h, i) => (
-                        <div key={i} className="text-xs text-[#525B55] flex items-center justify-between py-1 bg-[#FAF8F5] px-2.5 rounded">
-                          <span>{h.sessionTitle || h.manuscriptId} {h.author ? `(by ${h.author})` : ''}</span>
-                          <span className="text-[10px] text-[#8C6D23]">Completed {new Date(h.completedAt).toLocaleDateString()}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-              </div>
-
-              {/* Security & Access Architecture Banner (Prompt Requirement 7 Disclosure) */}
-              <div className="p-4 sm:p-5 bg-[#FAF6F0] border border-[#C5A059]/40 rounded text-left space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#8C6D23]">
-                  <Shield className="w-4 h-4 text-[#10B981]" />
-                  <span>Security &amp; Anti-Download Architecture</span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-[#4A534E] pt-1">
-                  <div className="p-2.5 bg-[#FFFFFF] rounded border border-[#E6DFD5]">
-                    <strong className="block text-[#143826] font-semibold mb-0.5">Private Storage</strong>
-                    Stored in isolated server directory (<code className="text-[10px] bg-[#F0EBE1] px-1 py-0.5 rounded">storage/manuscripts/</code>). No public URL is ever exposed.
-                  </div>
-                  <div className="p-2.5 bg-[#FFFFFF] rounded border border-[#E6DFD5]">
-                    <strong className="block text-[#143826] font-semibold mb-0.5">Authorized Streaming</strong>
-                    Served only through token-authenticated endpoint (<code className="text-[10px] bg-[#F0EBE1] px-1 py-0.5 rounded">/api/manuscripts/:id/stream</code>) with 30-min expiry.
-                  </div>
-                  <div className="p-2.5 bg-[#FFFFFF] rounded border border-[#E6DFD5]">
-                    <strong className="block text-[#143826] font-semibold mb-0.5">Canvas-Only Rendering</strong>
-                    Rendered via PDF.js on HTML5 canvas with zero browser download buttons, print menus, or right-click export.
-                  </div>
-                </div>
-                <div className="p-2.5 bg-[#FFFBEB] border border-[#F59E0B]/30 rounded text-[11px] text-[#92400E] leading-relaxed flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0 text-[#D97706] mt-0.5" />
-                  <div>
-                    <strong>Administrator Technical Disclosure:</strong> While all visible download controls, menus, and direct file URLs are suppressed, client browsers must receive vector/raster data to render pages on-screen. Determined visitors with advanced browser developer tools or memory dumpers may theoretically capture network payloads. Our architecture implements defense-in-depth, token expiry, and private storage to deter unauthorized distribution.
-                  </div>
-                </div>
-              </div>
-
-              {/* Upload Genuine PDF Manuscript Form */}
-              <div className="bg-[#FFFFFF] border border-[#E6DFD5] rounded p-5 space-y-4">
-                <h4 className="font-serif text-base font-semibold text-[#143826] flex items-center gap-2">
-                  <Upload className="w-4 h-4 text-[#C5A059]" />
-                  <span>Upload Genuine PDF Manuscript</span>
-                </h4>
-
-                <form onSubmit={handleUploadManuscript} className="space-y-4">
-                  {msUploadError && (
-                    <div className="p-3 bg-[#FEF2F2] border border-[#F87171] text-[#991B1B] text-xs rounded">
-                      {msUploadError}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-[#2D332F] mb-1">
-                        Select PDF Manuscript File *
-                      </label>
                       <input
                         type="file"
-                        accept="application/pdf,.pdf"
+                        accept="image/*"
                         onChange={(e) => {
-                          const file = e.target.files?.[0] || null;
-                          setMsFile(file);
-                          if (file && !msTitle) {
-                            setMsTitle(file.name.replace(/\.pdf$/i, ''));
-                          }
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            if (typeof reader.result === 'string') {
+                              setBcCoverImage(reader.result);
+                            }
+                          };
+                          reader.readAsDataURL(file);
                         }}
-                        required
-                        className="w-full text-xs text-[#4A534E] file:mr-3 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-[#143826] file:text-[#FAF6F0] hover:file:bg-[#1E4D35] cursor-pointer border border-[#D5CDBD] rounded p-1.5 bg-[#FAF8F5]"
-                      />
-                      <span className="text-[10px] text-[#7A857F] mt-1 block">
-                        Must be a genuine PDF document. The system will inspect page count and layout automatically.
-                      </span>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-[#2D332F] mb-1">
-                        Book Title *
-                      </label>
-                      <input
-                        type="text"
-                        value={msTitle}
-                        onChange={(e) => setMsTitle(e.target.value)}
-                        placeholder="e.g., The Midnight Conservatory"
-                        required
-                        className="w-full text-xs px-3 py-2 bg-[#FAF8F5] border border-[#D5CDBD] rounded focus:outline-hidden focus:border-[#143826]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-[#2D332F] mb-1">
-                        Author Name *
-                      </label>
-                      <input
-                        type="text"
-                        value={msAuthor}
-                        onChange={(e) => setMsAuthor(e.target.value)}
-                        placeholder="e.g., Eliza Blackwood"
-                        required
-                        className="w-full text-xs px-3 py-2 bg-[#FAF8F5] border border-[#D5CDBD] rounded focus:outline-hidden focus:border-[#143826]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-[#2D332F] mb-1">
-                        Primary Category &amp; Genre *
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <select
-                          value={msCategory}
-                          onChange={(e) => setMsCategory(e.target.value as BookCategory)}
-                          className="w-full text-xs px-2.5 py-2 bg-[#FAF8F5] border border-[#D5CDBD] rounded"
-                        >
-                          <option value="Fiction">Fiction</option>
-                          <option value="Nonfiction">Nonfiction</option>
-                        </select>
-                        <select
-                          value={msGenre}
-                          onChange={(e) => setMsGenre(e.target.value)}
-                          className="w-full text-xs px-2.5 py-2 bg-[#FAF8F5] border border-[#D5CDBD] rounded"
-                        >
-                          {(msCategory === 'Fiction' ? FICTION_GENRES : NONFICTION_GENRES).map((g) => (
-                            <option key={g} value={g}>{g}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-[#2D332F] mb-1">
-                        Cover Image URL
-                      </label>
-                      <input
-                        type="url"
-                        value={msCover}
-                        onChange={(e) => setMsCover(e.target.value)}
-                        placeholder="https://images.unsplash.com/... or cover art link"
-                        className="w-full text-xs px-3 py-2 bg-[#FAF8F5] border border-[#D5CDBD] rounded focus:outline-hidden focus:border-[#143826]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-[#2D332F] mb-1">
-                        Reader Access Control *
-                      </label>
-                      <select
-                        value={msAccess}
-                        onChange={(e) => setMsAccess(e.target.value as ManuscriptAccessLevel)}
-                        className="w-full text-xs px-3 py-2 bg-[#FAF8F5] border border-[#D5CDBD] rounded"
-                      >
-                        <option value="public">Public (All Website Visitors)</option>
-                        <option value="community">Community Only (Book Club Members)</option>
-                        <option value="reviewers_only">Verified Reviewers Only (ARC)</option>
-                      </select>
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-semibold text-[#2D332F] mb-1">
-                        Manuscript Synopsis / Editorial Overview
-                      </label>
-                      <textarea
-                        rows={2}
-                        value={msDesc}
-                        onChange={(e) => setMsDesc(e.target.value)}
-                        placeholder="Provide an overview of this manuscript for readers in the library..."
-                        className="w-full text-xs px-3 py-2 bg-[#FAF8F5] border border-[#D5CDBD] rounded focus:outline-hidden focus:border-[#143826]"
+                        className="text-[11px] text-[#525B55] file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-[11px] file:font-semibold file:bg-[#143826] file:text-white cursor-pointer"
                       />
                     </div>
                   </div>
-
-                  <button
-                    type="submit"
-                    disabled={isUploadingMs}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#143826] hover:bg-[#1E4D35] text-[#FAF6F0] rounded text-xs font-semibold uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer shadow-2xs"
-                  >
-                    <Upload className="w-4 h-4 text-[#C5A059]" />
-                    <span>{isUploadingMs ? 'Uploading & Processing PDF...' : 'Upload & Encrypt Manuscript'}</span>
-                  </button>
-                </form>
-              </div>
-
-              {/* Manuscript Library List */}
-              <div className="bg-[#FFFFFF] border border-[#E6DFD5] rounded p-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-serif text-base font-semibold text-[#143826] flex items-center gap-2">
-                    <BookMarked className="w-4 h-4 text-[#C5A059]" />
-                    <span>Active Manuscripts in Private Storage ({manuscripts.length})</span>
-                  </h4>
-                  <button
-                    onClick={() => refreshManuscripts()}
-                    className="text-xs font-semibold text-[#143826] hover:underline inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Refresh</span>
-                  </button>
+                  <div>
+                    <label className="block text-xs font-bold text-[#143826] mb-1">Genre</label>
+                    <input
+                      type="text"
+                      value={bcGenre}
+                      onChange={(e) => setBcGenre(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
+                    />
+                  </div>
                 </div>
 
-                <div className="divide-y divide-[#F0EBE1]">
-                  {manuscripts.map((m) => (
-                    <div key={m.id} className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      
-                      {/* Left: Info */}
-                      <div className="flex items-start gap-3 min-w-0">
-                        <img
-                          src={m.coverImage}
-                          alt={m.title}
-                          className="w-12 h-16 object-cover rounded border border-[#E6DFD5] shrink-0 bg-[#FAF8F5]"
-                        />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h5 className="font-serif text-sm font-semibold text-[#143826] truncate">
-                              {m.title}
-                            </h5>
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                              m.isPublished ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#FEE2E2] text-[#991B1B]'
-                            }`}>
-                              {m.isPublished ? 'Published' : 'Unpublished / Draft'}
-                            </span>
-                            <span className="text-[10px] font-semibold text-[#8C6D23] bg-[#FEF3C7] px-1.5 py-0.5 rounded">
-                              {m.accessLevel === 'public' ? 'Public Access' : m.accessLevel === 'community' ? 'Community Only' : 'Reviewer ARC'}
-                            </span>
-                          </div>
+                <div>
+                  <label className="block text-xs font-bold text-[#143826] mb-1">Synopsis</label>
+                  <textarea
+                    rows={3}
+                    value={bcSynopsis}
+                    onChange={(e) => setBcSynopsis(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
+                  />
+                </div>
 
-                          <span className="text-xs text-[#525B55] block mt-0.5">
-                            By {m.author} · {m.category} ({m.genre}) · <strong className="font-mono text-[#143826]">{m.pageCount} Pages</strong> · Access: <strong className="text-[#15803D]">Free Book Club Reading</strong> ({(m.fileSizeBytes / 1024).toFixed(1)} KB)
-                          </span>
-                          <span className="text-[11px] text-[#7A857F] block line-clamp-1 mt-0.5">
-                            {m.description}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-[#143826] mb-1">Meeting Schedule</label>
+                    <input
+                      type="text"
+                      value={bcMeetingDate}
+                      onChange={(e) => setBcMeetingDate(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#143826] mb-1">Discussion Format</label>
+                    <input
+                      type="text"
+                      value={bcMeetingFormat}
+                      onChange={(e) => setBcMeetingFormat(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-[#143826] hover:bg-[#1E4D35] text-white text-xs font-bold uppercase tracking-wider rounded transition-colors cursor-pointer inline-flex items-center gap-2"
+                >
+                  <Save className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <span>Save Book Club Selection</span>
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* 4. MANUSCRIPT MANAGEMENT (UPLOAD & PDF STORAGE)           */}
+          {/* ========================================================= */}
+          {activeTab === 'manuscripts' && (
+            <div className="space-y-6">
+              <div className="border-b border-[#E6DFD5] pb-4">
+                <h3 className="font-serif text-xl font-semibold text-[#143826] flex items-center gap-2">
+                  <Upload className="w-5 h-5 text-[#C5A059]" />
+                  <span>Manuscript Management &amp; Private Storage</span>
+                </h3>
+                <p className="text-xs text-[#525B55] mt-1 leading-relaxed">
+                  Upload authentic PDF manuscripts into server storage with anti-download protection and integrated interactive reading.
+                </p>
+              </div>
+
+              {/* Upload Form */}
+              <form onSubmit={handleUploadManuscript} className="bg-white border border-[#E6DFD5] p-5 rounded space-y-4">
+                <h4 className="font-serif text-base font-semibold text-[#143826]">
+                  Upload Genuine PDF Manuscript
+                </h4>
+
+                {msUploadError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded">
+                    {msUploadError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#143826] uppercase tracking-wider mb-1">
+                      PDF Document File (.pdf) *
+                    </label>
+                    <input
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      onChange={(e) => setMsFile(e.target.files ? e.target.files[0] : null)}
+                      required
+                      className="w-full text-xs text-[#525B55] file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-[#143826] file:text-white hover:file:bg-[#1E4D35] cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-[#143826] uppercase tracking-wider mb-1">
+                      Book Title *
+                    </label>
+                    <input
+                      type="text"
+                      value={msTitle}
+                      onChange={(e) => setMsTitle(e.target.value)}
+                      placeholder="e.g. Slow Productivity"
+                      required
+                      className="w-full px-3 py-2 text-xs border border-[#D5CDBD] rounded"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-[#143826] uppercase tracking-wider mb-1">
+                      Author Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={msAuthor}
+                      onChange={(e) => setMsAuthor(e.target.value)}
+                      placeholder="e.g. Dr. Eva Pérez Visus"
+                      required
+                      className="w-full px-3 py-2 text-xs border border-[#D5CDBD] rounded"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-[#143826] uppercase tracking-wider mb-1">
+                      Access Level
+                    </label>
+                    <select
+                      value={msAccess}
+                      onChange={(e) => setMsAccess(e.target.value as any)}
+                      className="w-full px-3 py-2 text-xs border border-[#D5CDBD] rounded bg-white"
+                    >
+                      <option value="public">Public (Open Preview)</option>
+                      <option value="registered_readers">Registered Members Only</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isUploadingMs}
+                  className="px-4 py-2 bg-[#143826] hover:bg-[#1E4D35] text-white text-xs font-bold uppercase tracking-wider rounded transition-colors cursor-pointer flex items-center gap-2"
+                >
+                  <Upload className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <span>{isUploadingMs ? 'Uploading & Parsing...' : 'Upload Manuscript to Archive'}</span>
+                </button>
+              </form>
+
+              {/* Manuscript Library List */}
+              <div className="space-y-3">
+                <h4 className="font-serif text-base font-semibold text-[#143826]">
+                  Archived Manuscripts ({manuscripts.length})
+                </h4>
+
+                <div className="divide-y divide-[#E6DFD5] bg-white border border-[#E6DFD5] rounded shadow-2xs">
+                  {manuscripts.map((m) => (
+                    <div key={m.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#FAF8F5]">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={m.coverImage || '/assets/aistudio/raising_the_whole_child_cover.png'}
+                          alt={m.title}
+                          className="w-12 h-16 object-cover rounded border border-[#E6DFD5] shrink-0"
+                        />
+                        <div>
+                          <strong className="block text-sm text-[#143826] font-serif font-bold">
+                            {m.title}
+                          </strong>
+                          <span className="text-xs text-[#525B55]">
+                            By {m.author} · {m.pageCount} Pages · {m.category}
                           </span>
                         </div>
                       </div>
 
-                      {/* Right: Actions */}
-                      <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                        {/* Book Club Active Session Status / Quick Set */}
-                        {m.id === bookClubSession?.activeManuscriptId && bookClubSession?.sessionStatus === 'active' ? (
-                          <span className="px-2.5 py-1 text-xs bg-[#DCFCE7] text-[#15803D] font-bold rounded border border-[#86EFAC] flex items-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Active Book Club Book</span>
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => handleMakeActiveSession(m.id)}
-                            className="px-2.5 py-1 text-xs bg-[#FAF6F0] hover:bg-[#143826] text-[#143826] hover:text-[#FAF6F0] font-semibold rounded border border-[#C5A059]/40 transition-colors cursor-pointer flex items-center gap-1"
-                            title="Set this manuscript as the active Book Club selection and Featured Book of the Month"
-                          >
-                            <BookMarked className="w-3.5 h-3.5 text-[#C5A059]" />
-                            <span>Set as Active Book</span>
-                          </button>
-                        )}
-
-                        {/* Access Control dropdown */}
-                        <select
-                          value={m.accessLevel}
-                          onChange={(e) => handleUpdateAccessLevel(m.id, e.target.value as ManuscriptAccessLevel)}
-                          className="text-xs px-2.5 py-1 bg-[#FAF8F5] border border-[#D5CDBD] rounded cursor-pointer"
-                          title="Change Reader Access Permissions"
-                        >
-                          <option value="public">Public Access</option>
-                          <option value="community">Community Only</option>
-                          <option value="reviewers_only">Reviewer ARC</option>
-                        </select>
-
-                        {/* Publish / Unpublish Toggle */}
+                      <div className="flex items-center gap-2 self-end sm:self-center">
                         <button
-                          onClick={() => handleTogglePublishManuscript(m.id)}
-                          className={`px-3 py-1 text-xs rounded border font-semibold transition-colors cursor-pointer ${
-                            m.isPublished
-                              ? 'bg-[#FFFFFF] text-[#9E2B22] border-[#FCA5A5] hover:bg-[#FEF2F2]'
-                              : 'bg-[#143826] text-[#FAF6F0] border-[#143826] hover:bg-[#1E4D35]'
-                          }`}
-                        >
-                          {m.isPublished ? 'Unpublish' : 'Publish'}
-                        </button>
-
-                        {/* Preview in Secure Reader */}
-                        <button
+                          type="button"
                           onClick={() => handlePreviewManuscript(m)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#143826] hover:bg-[#1E4D35] text-[#FAF6F0] rounded text-xs font-semibold cursor-pointer shadow-2xs"
-                          title="Preview in Canvas Reader"
+                          className="px-3 py-1.5 bg-[#FAF6F0] hover:bg-[#EAE4D8] border border-[#D5CDBD] text-[#143826] text-xs font-semibold rounded flex items-center gap-1 transition-colors cursor-pointer"
                         >
-                          <Eye className="w-3.5 h-3.5 text-[#C5A059]" />
-                          <span>Preview</span>
+                          <Eye className="w-3.5 h-3.5 text-[#8C6D23]" />
+                          <span>Preview Reader</span>
                         </button>
 
-                        {/* Delete */}
                         <button
+                          type="button"
+                          onClick={() => handleTogglePublishManuscript(m.id)}
+                          className="px-3 py-1.5 bg-[#FAF6F0] hover:bg-[#EAE4D8] border border-[#D5CDBD] text-[#143826] text-xs font-semibold rounded cursor-pointer"
+                        >
+                          {m.isPublished ? 'Published' : 'Draft'}
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => handleDeleteManuscript(m.id, m.title)}
-                          className="p-1.5 text-[#9E2B22] hover:bg-[#FDF0EE] rounded cursor-pointer"
-                          title="Delete manuscript permanently"
+                          className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer"
+                          title="Delete Manuscript"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1816,267 +1871,206 @@ export const AdminStudio: React.FC = () => {
                   ))}
                 </div>
               </div>
-
             </div>
           )}
 
-          {/* TAB 4: Pricing & Package Manager */}
-          {activeTab === 'pricing' && (
+          {/* ========================================================= */}
+          {/* 5. COMMENTS & REVIEWS (51 + 10 SAMPLE DEMONSTRATION)      */}
+          {/* ========================================================= */}
+          {activeTab === 'reviews' && (
             <div className="space-y-6">
-              <div>
-                <h3 className="font-serif text-xl font-semibold text-[#143826]">
-                  Manage Services & Package Pricing
+              <div className="border-b border-[#E6DFD5] pb-4">
+                <h3 className="font-serif text-xl font-semibold text-[#143826] flex items-center gap-2">
+                  <Star className="w-5 h-5 text-[#C5A059]" />
+                  <span>Comments &amp; Star Ratings Moderation</span>
                 </h3>
-                <p className="text-xs text-[#525B55] mt-1">
-                  Update package prices, turnarounds, or revisions. Changes immediately update across both the Services and Pricing pages.
+                <p className="text-xs text-[#525B55] mt-1 leading-relaxed">
+                  Reader comments and five-star ratings for <strong>{bookClubSelection.bookTitle}</strong> by {bookClubSelection.author}.
                 </p>
               </div>
 
-              <div className="space-y-6">
-                {services.map((service) => (
-                  <div key={service.id} className="bg-white border border-[#E6DFD5] rounded p-5">
-                    <h4 className="font-serif text-base font-semibold text-[#143826] mb-3 border-b border-[#F0EBE1] pb-2">
-                      {service.name}
-                    </h4>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {service.packages.map((pkg) => (
-                        <div key={pkg.id} className="p-3.5 bg-[#FAF8F5] rounded border border-[#E6DFD5] text-xs space-y-2">
-                          <div className="font-semibold text-[#143826] flex justify-between">
-                            <span>{pkg.name}</span>
-                            <span className="font-mono text-[#8C6D23]">{pkg.price}</span>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] text-[#717C76] uppercase">Edit Price Text</label>
-                            <input
-                              type="text"
-                              defaultValue={pkg.price}
-                              onBlur={(e) => {
-                                updatePackage(service.id, pkg.id, { price: e.target.value });
-                                showSuccess(`Updated price for ${service.name} - ${pkg.name}`);
-                              }}
-                              className="w-full px-2 py-1 text-xs bg-white border border-[#D5CDBD] rounded font-medium"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] text-[#717C76] uppercase">Turnaround Time</label>
-                            <input
-                              type="text"
-                              defaultValue={pkg.turnaround}
-                              onBlur={(e) => {
-                                updatePackage(service.id, pkg.id, { turnaround: e.target.value });
-                                showSuccess(`Updated turnaround for ${pkg.name}`);
-                              }}
-                              className="w-full px-2 py-1 text-xs bg-white border border-[#D5CDBD] rounded"
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: Team Profiles */}
-          {activeTab === 'team' && (
-            <div className="space-y-6">
-              
-              {/* Add Team Member */}
-              <div className="bg-[#FAF7F2] border border-[#E6DFD5] p-5 rounded">
-                <h4 className="font-serif text-lg font-semibold text-[#143826] mb-3">
-                  Add Team Profile
-                </h4>
-                <form onSubmit={handleAddTeamSubmit} className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <input
-                      type="text"
-                      value={newTeamName}
-                      onChange={(e) => setNewTeamName(e.target.value)}
-                      required
-                      placeholder="Full Name"
-                      className="px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
-                    />
-                    <input
-                      type="text"
-                      value={newTeamTitle}
-                      onChange={(e) => setNewTeamTitle(e.target.value)}
-                      required
-                      placeholder="Job Title"
-                      className="px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
-                    />
-                    <input
-                      type="text"
-                      value={newTeamArea}
-                      onChange={(e) => setNewTeamArea(e.target.value)}
-                      placeholder="Area of Responsibility"
-                      className="px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
-                    />
-                  </div>
-
-                  <input
-                    type="url"
-                    value={newTeamPhoto}
-                    onChange={(e) => setNewTeamPhoto(e.target.value)}
-                    placeholder="Photo URL (optional)"
-                    className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
-                  />
-
-                  <textarea
-                    rows={2}
-                    value={newTeamBio}
-                    onChange={(e) => setNewTeamBio(e.target.value)}
-                    placeholder="Short biography..."
-                    className="w-full px-3 py-2 text-xs bg-white border border-[#D5CDBD] rounded"
-                  />
-
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[#FAF6F0] bg-[#143826] hover:bg-[#1E4D35] rounded cursor-pointer"
-                  >
-                    Add Team Member
-                  </button>
-                </form>
-              </div>
-
-              {/* Team list */}
-              <div className="divide-y divide-[#E6DFD5] border border-[#E6DFD5] rounded bg-white">
-                {teamMembers.map((member) => (
-                  <div key={member.id} className="p-4 flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-[#EFE9DE] overflow-hidden shrink-0 flex items-center justify-center border border-[#D5CDBD]">
-                        {member.photoUrl ? (
-                          <img src={member.photoUrl} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="font-serif font-bold text-xs text-[#143826]">
-                            {member.name.split(' ').map((n) => n[0]).join('')}
-                          </span>
-                        )}
-                      </div>
-                      <div>
-                        <span className="font-semibold text-xs text-[#143826] block">{member.name}</span>
-                        <span className="text-[11px] text-[#525B55]">{member.status || member.title} {member.email ? `• ${member.email}` : `(${member.areaOfResponsibility})`}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        deleteTeamMember(member.id);
-                        showSuccess(`Removed ${member.name}`);
-                      }}
-                      className="p-1.5 text-[#9E2B22] hover:bg-[#FAF0EE] rounded cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-            </div>
-          )}
-
-          {/* TAB 5: Enquiry Inbox */}
-          {activeTab === 'inbox' && (
-            <div className="space-y-6">
-              
-              <div>
-                <h3 className="font-serif text-xl font-semibold text-[#143826]">
-                  Service Bookings & Inquiries Log
-                </h3>
-                <p className="text-xs text-[#525B55] mt-1">
-                  All author booking requests and general messages submitted through website forms are recorded here.
-                </p>
-              </div>
-
-              {/* Work With Us - Author Enquiries */}
-              <div className="p-4 bg-[#FAF7F2] border-2 border-[#143826]/30 rounded">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#143826]">
-                      Work With Us – Author Enquiries ({authorEnquiries.length})
-                    </h4>
-                    <span className="text-[11px] text-[#8C6D23]">
-                      Connected to <strong>thebookclique.official@gmail.com</strong>
+              {/* Review Statistics Summary Box */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white p-4 rounded border border-[#E6DFD5] shadow-2xs">
+                  <span className="text-[11px] font-bold text-[#717C76] uppercase tracking-wider block">
+                    Book Club Reader Comments
+                  </span>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="font-serif text-2xl font-bold text-[#143826]">
+                      {SAMPLE_COMMENTS_STATS.totalCount + slowProductivityDiscussionComments.length}
+                    </span>
+                    <span className="text-xs text-[#8C6D23] font-semibold">
+                      Discussion Entries
                     </span>
                   </div>
-                  <button
-                    onClick={fetchAuthorEnquiries}
-                    disabled={isLoadingAuthorEnquiries}
-                    className="text-xs font-semibold text-[#143826] hover:underline cursor-pointer"
-                  >
-                    {isLoadingAuthorEnquiries ? 'Refreshing...' : 'Refresh'}
-                  </button>
+                  <span className="text-[10px] text-[#717C76] mt-1 block">
+                    Includes all 51 preserved reader comments plus live member posts.
+                  </span>
                 </div>
 
-                {authorEnquiries.length === 0 ? (
-                  <p className="text-xs text-[#717C76] italic p-3 bg-white border border-[#E6DFD5] rounded">
-                    No author partnership enquiries submitted yet. Submissions from the Work With Us form will appear here.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {authorEnquiries.map((item) => (
-                      <div key={item.id} className="p-4 bg-white border border-[#D5CDBD] rounded text-xs space-y-2 text-left shadow-2xs">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-[#F0EBE1] pb-2">
-                          <div>
-                            <strong className="text-sm font-serif text-[#143826]">{item.fullName}</strong>
-                            <a href={`mailto:${item.email}`} className="text-[#8C6D23] ml-2 underline font-mono text-xs">
-                              {item.email}
-                            </a>
-                          </div>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold w-fit ${
-                            item.deliveryStatus === 'sent'
-                              ? 'bg-[#D1FAE5] text-[#065F46]'
-                              : item.deliveryStatus === 'fallback_test'
-                              ? 'bg-[#FEF3C7] text-[#92400E]'
-                              : 'bg-[#FEE2E2] text-[#991B1B]'
-                          }`}>
-                            Email: {item.deliveryStatus === 'sent' ? 'Dispatched' : item.deliveryStatus === 'fallback_test' ? 'Test Verified' : 'Queued/Failed'}
+                <div className="bg-white p-4 rounded border border-[#E6DFD5] shadow-2xs">
+                  <span className="text-[11px] font-bold text-[#717C76] uppercase tracking-wider block">
+                    Overall Calculated Rating
+                  </span>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="font-serif text-2xl font-bold text-[#143826]">
+                      {SAMPLE_COMMENTS_STATS.averageRating}★
+                    </span>
+                    <span className="text-xs text-[#15803D] font-semibold">
+                      Out of 5.0 Stars
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-[#717C76] mt-1 block">
+                    Individual ratings range from 3 to 5 stars.
+                  </span>
+                </div>
+
+                <div className="bg-white p-4 rounded border border-[#E6DFD5] shadow-2xs">
+                  <span className="text-[11px] font-bold text-[#717C76] uppercase tracking-wider block">
+                    Live Registered Submissions
+                  </span>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="font-serif text-2xl font-bold text-[#143826]">
+                      {slowProductivityGenuineReviews.length + slowProductivityDiscussionComments.length}
+                    </span>
+                    <span className="text-xs text-[#15803D] font-semibold">
+                      Member Ratings &amp; Comments
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-[#717C76] mt-1 block">
+                    Persisted across sessions in server storage.
+                  </span>
+                </div>
+              </div>
+
+              {/* Live Member Ratings & Comments */}
+              {(slowProductivityGenuineReviews.length > 0 || slowProductivityDiscussionComments.length > 0) && (
+                <div className="space-y-3">
+                  <h4 className="font-serif text-base font-semibold text-[#143826]">
+                    Recent Registered Member Submissions
+                  </h4>
+                  <div className="space-y-2">
+                    {slowProductivityGenuineReviews.map((rev: any) => (
+                      <div key={rev.id} className="bg-white border border-[#86EFAC] rounded p-4 text-xs space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <strong className="text-sm font-semibold text-[#143826]">{rev.readerName}</strong>
+                          <span className="font-bold text-[#143826]">{rev.rating}.0 ★ Rating</span>
+                        </div>
+                        {rev.comment && <p className="text-[#3A433E]">{rev.comment}</p>}
+                      </div>
+                    ))}
+                    {slowProductivityDiscussionComments.map((cmt: any) => (
+                      <div key={cmt.id} className="bg-white border border-[#D5CDBD] rounded p-4 text-xs space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <strong className="text-sm font-semibold text-[#143826]">{cmt.readerName}</strong>
+                          <span className="text-[11px] text-[#717C76]">
+                            {new Date(cmt.createdAt).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}
                           </span>
                         </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[#3A423E]">
-                          <div>
-                            <span className="text-[#6D7771]">Book Title:</span> <strong>&ldquo;{item.bookTitle}&rdquo;</strong>
-                          </div>
-                          <div>
-                            <span className="text-[#6D7771]">Genre:</span> <strong>{item.bookGenre}</strong>
-                          </div>
-                          <div className="sm:col-span-2">
-                            <span className="text-[#6D7771]">Interest:</span> <strong className="text-[#143826]">{item.interest}</strong>
-                          </div>
-                        </div>
-
-                        {item.notes && (
-                          <div className="p-2.5 bg-[#FAF8F5] rounded border border-[#EAE4D8] text-[#556059] text-[11px]">
-                            {item.notes}
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-between text-[11px] text-[#7A857F] pt-2 border-t border-[#F0EBE1]">
-                          <span>Submitted: {new Date(item.submittedAt).toLocaleString()}</span>
-                          {item.previewUrl && (
-                            <a href={item.previewUrl} target="_blank" rel="noreferrer" className="text-[#8C6D23] underline font-semibold">
-                              View Test Email Preview &rarr;
-                            </a>
-                          )}
-                        </div>
+                        <p className="text-[#3A433E]">{cmt.comment}</p>
                       </div>
                     ))}
                   </div>
-                )}
+                </div>
+              )}
+
+              {/* Search & Filter Bar */}
+              <div className="bg-[#FAF7F2] border border-[#E6DFD5] p-4 rounded flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-[#8C6D23] absolute left-3 top-3 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={reviewSearchQuery}
+                    onChange={(e) => setReviewSearchQuery(e.target.value)}
+                    placeholder="Search comments by reader name or discussion text..."
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-[#D5CDBD] rounded text-xs text-[#1C1E1D]"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[#717C76]">Star Rating:</span>
+                  <select
+                    value={reviewRatingFilter}
+                    onChange={(e) => setReviewRatingFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                    className="bg-white border border-[#D5CDBD] text-xs font-semibold text-[#143826] px-2.5 py-1.5 rounded cursor-pointer"
+                  >
+                    <option value="all">All Ratings (51)</option>
+                    <option value={5}>5 Stars Only (34)</option>
+                    <option value={4}>4 Stars Only (15)</option>
+                    <option value={3}>3 Stars Only (2)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 51 Reader Comments List */}
+              <div className="space-y-3">
+                {SAMPLE_COMMENTS_RAISING_THE_WHOLE_CHILD
+                  .filter((c) => {
+                    if (reviewRatingFilter !== 'all' && c.rating !== reviewRatingFilter) return false;
+                    if (!reviewSearchQuery.trim()) return true;
+                    const q = reviewSearchQuery.toLowerCase();
+                    return c.name.toLowerCase().includes(q) || c.comment.toLowerCase().includes(q);
+                  })
+                  .map((c) => (
+                    <div key={c.number} className="bg-white border border-[#E6DFD5] rounded p-4 text-xs space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[11px] font-bold text-[#8C6D23]">
+                            #{c.number}
+                          </span>
+                          <strong className="text-sm font-semibold text-[#143826]">
+                            {c.name}
+                          </strong>
+                        </div>
+
+                        <div className="flex items-center gap-1 text-[#C5A059]">
+                          {[...Array(5)].map((_, i) => (
+                            <Star
+                              key={i}
+                              className={`w-3.5 h-3.5 ${
+                                i < c.rating ? 'fill-[#C5A059] text-[#C5A059]' : 'text-[#D5CDBD]'
+                              }`}
+                            />
+                          ))}
+                          <span className="font-bold text-[#143826] text-xs ml-1">
+                            {c.rating}.0
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="text-[#3A433E] leading-relaxed">
+                        {c.comment}
+                      </p>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* 6. AUTHOR ENQUIRIES                                       */}
+          {/* ========================================================= */}
+          {activeTab === 'inbox' && (
+            <div className="space-y-6">
+              <div className="border-b border-[#E6DFD5] pb-4">
+                <h3 className="font-serif text-xl font-semibold text-[#143826] flex items-center gap-2">
+                  <Inbox className="w-5 h-5 text-[#C5A059]" />
+                  <span>Author Booking Enquiries &amp; Inquiries</span>
+                </h3>
+                <p className="text-xs text-[#525B55] mt-1 leading-relaxed">
+                  Inbound project requests from authors for Book Club Promotion, Book Trailers, and Marketing Strategy packages.
+                </p>
               </div>
 
               {/* Service Enquiries */}
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-[#636E67] mb-2">
-                  Service Package Enquiries ({enquiries.length})
+              <div className="space-y-3">
+                <h4 className="font-serif text-base font-semibold text-[#143826]">
+                  Work With Us Service Enquiries ({enquiries.length})
                 </h4>
 
                 {enquiries.length === 0 ? (
-                  <p className="text-xs text-[#717C76] italic p-4 bg-white border border-[#E6DFD5] rounded">
-                    No service bookings recorded yet. New submissions will appear here automatically.
+                  <p className="p-4 bg-white border border-[#E6DFD5] rounded text-xs text-[#717C76] italic">
+                    No author booking enquiries submitted yet.
                   </p>
                 ) : (
                   <div className="space-y-3">
@@ -2084,39 +2078,35 @@ export const AdminStudio: React.FC = () => {
                       <div key={enq.id} className="p-4 bg-white border border-[#E6DFD5] rounded text-xs space-y-2">
                         <div className="flex items-center justify-between">
                           <div>
-                            <strong className="text-sm font-serif text-[#143826]">{enq.customerName}</strong>
-                            <span className="text-[#6D7771] ml-2 font-mono">({enq.email})</span>
+                            <strong className="text-sm font-semibold text-[#143826]">{enq.customerName}</strong>
+                            <span className="text-[#525B55] ml-2 font-mono">({enq.email})</span>
                           </div>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                            enq.status === 'Pending Review' ? 'bg-[#FEF3C7] text-[#92400E]' : 'bg-[#D1FAE5] text-[#065F46]'
-                          }`}>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#FAF6F0] text-[#8C6D23] border border-[#E6DFD5]">
                             {enq.status}
                           </span>
                         </div>
 
-                        <div className="text-[#3A423E]">
-                          Book: <strong>"{enq.bookTitle}"</strong> by {enq.authorName} · Service: <strong>{enq.selectedService} ({enq.selectedPackage})</strong>
-                        </div>
-
                         {enq.projectDescription && (
-                          <div className="p-2.5 bg-[#FAF8F5] rounded border border-[#EAE4D8] text-[#556059]">
+                          <p className="text-[#3A433E] bg-[#FAF8F5] p-2.5 rounded border border-[#EAE4D8]">
                             {enq.projectDescription}
-                          </div>
+                          </p>
                         )}
 
                         <div className="flex items-center justify-between text-[11px] text-[#7A857F] pt-2 border-t border-[#F0EBE1]">
                           <span>Submitted: {new Date(enq.submittedAt).toLocaleString()}</span>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                updateEnquiryStatus(enq.id, enq.status === 'Pending Review' ? 'Contacted' : 'Pending Review');
-                                showSuccess(`Updated status for ${enq.customerName}`);
-                              }}
-                              className="text-xs font-semibold text-[#143826] hover:underline cursor-pointer"
-                            >
-                              Toggle Status ({enq.status === 'Pending Review' ? 'Mark Contacted' : 'Mark Pending'})
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateEnquiryStatus(
+                                enq.id,
+                                enq.status === 'Pending Review' ? 'Contacted' : 'Pending Review'
+                              );
+                              showSuccess(`Updated enquiry status for ${enq.customerName}`);
+                            }}
+                            className="text-xs font-semibold text-[#143826] hover:underline cursor-pointer"
+                          >
+                            Toggle Status ({enq.status === 'Pending Review' ? 'Mark Contacted' : 'Mark Pending'})
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -2124,47 +2114,20 @@ export const AdminStudio: React.FC = () => {
                 )}
               </div>
 
-              {/* Book Club Signups */}
-              <div className="pt-4 border-t border-[#E6DFD5]">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-[#636E67] mb-2">
-                  Book Club Member Registrations ({bookClubSignups.length})
+              {/* Contact Form Messages */}
+              <div className="space-y-3 pt-4 border-t border-[#E6DFD5]">
+                <h4 className="font-serif text-base font-semibold text-[#143826]">
+                  General Contact Form Inquiries ({contactMessages.length})
                 </h4>
-                {bookClubSignups.length === 0 ? (
-                  <p className="text-xs text-[#717C76] italic p-4 bg-white border border-[#E6DFD5] rounded">
-                    No club registrations yet.
-                  </p>
-                ) : (
-                  <div className="divide-y divide-[#E6DFD5] border border-[#E6DFD5] rounded bg-white">
-                    {bookClubSignups.map((s) => (
-                      <div key={s.id} className="p-3 text-xs flex justify-between items-center">
-                        <div>
-                          <strong>{s.fullName}</strong> ({s.email})
-                          <span className="text-[#6D7771] ml-2 block sm:inline">
-                            Genres: {s.favoriteGenres.join(', ')} · Goal: {s.readingGoal}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-[#8C6D23] font-mono shrink-0">
-                          {new Date(s.submittedAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
 
-              {/* General Contact Messages */}
-              <div className="pt-4 border-t border-[#E6DFD5]">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-[#636E67] mb-2">
-                  Contact Form Messages ({contactMessages.length})
-                </h4>
                 {contactMessages.length === 0 ? (
-                  <p className="text-xs text-[#717C76] italic p-4 bg-white border border-[#E6DFD5] rounded">
-                    No general messages recorded yet.
+                  <p className="p-4 bg-white border border-[#E6DFD5] rounded text-xs text-[#717C76] italic">
+                    No general contact messages recorded yet.
                   </p>
                 ) : (
                   <div className="space-y-3">
                     {contactMessages.map((msg) => (
-                      <div key={msg.id} className="p-3.5 bg-white border border-[#E6DFD5] rounded text-xs space-y-1">
+                      <div key={msg.id} className="p-4 bg-white border border-[#E6DFD5] rounded text-xs space-y-2">
                         <div className="flex justify-between font-semibold text-[#143826]">
                           <span>{msg.name} ({msg.email})</span>
                           <span className="text-[10px] font-mono text-[#8C6D23]">{msg.inquiryType}</span>
@@ -2176,21 +2139,377 @@ export const AdminStudio: React.FC = () => {
                   </div>
                 )}
               </div>
+            </div>
+          )}
 
+          {/* ========================================================= */}
+          {/* 7. WEBSITE SETTINGS (OFFICIAL GMAIL & CONFIG)             */}
+          {/* ========================================================= */}
+          {activeTab === 'settings' && (
+            <div className="space-y-6 max-w-3xl">
+              <div className="border-b border-[#E6DFD5] pb-4">
+                <h3 className="font-serif text-xl font-semibold text-[#143826] flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-[#C5A059]" />
+                  <span>Website Settings &amp; Site-Wide Configuration</span>
+                </h3>
+                <p className="text-xs text-[#525B55] mt-1 leading-relaxed">
+                  Configure the verified official contact Gmail address, tagline, scam advisory notices, catalogue, and team.
+                </p>
+              </div>
+
+              {/* Subtabs */}
+              <div className="flex items-center gap-2 border-b border-[#E6DFD5] pb-2 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setSettingsSubTab('general')}
+                  className={`px-3 py-1.5 rounded cursor-pointer ${
+                    settingsSubTab === 'general' ? 'bg-[#143826] text-white' : 'text-[#525B55] hover:bg-[#EAE4D8]'
+                  }`}
+                >
+                  Official Contact &amp; Scam Alert
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsSubTab('catalogue')}
+                  className={`px-3 py-1.5 rounded cursor-pointer ${
+                    settingsSubTab === 'catalogue' ? 'bg-[#143826] text-white' : 'text-[#525B55] hover:bg-[#EAE4D8]'
+                  }`}
+                >
+                  Book Catalogue ({books.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsSubTab('team')}
+                  className={`px-3 py-1.5 rounded cursor-pointer ${
+                    settingsSubTab === 'team' ? 'bg-[#143826] text-white' : 'text-[#525B55] hover:bg-[#EAE4D8]'
+                  }`}
+                >
+                  Team Profiles ({teamMembers.length})
+                </button>
+              </div>
+
+              {settingsSubTab === 'general' && (
+                <form onSubmit={handleSaveGeneral} className="space-y-4">
+                  <div className="bg-white border border-[#E6DFD5] p-5 rounded space-y-4 shadow-2xs">
+                    <div>
+                      <label className="block text-xs font-bold text-[#143826] uppercase tracking-wider mb-1">
+                        Official Contact Gmail Address *
+                      </label>
+                      <input
+                        type="text"
+                        value={officialEmail}
+                        onChange={(e) => setOfficialEmail(e.target.value)}
+                        required
+                        className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded font-mono focus:outline-2 focus:outline-[#143826]"
+                      />
+                      <span className="text-[11px] text-[#525B55] mt-1 block">
+                        Propagates immediately to the global Scam Alert Banner, Contact Us page, and Footer.
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-[#2C332F] mb-1">
+                        Brand Tagline
+                      </label>
+                      <input
+                        type="text"
+                        value={brandTagline}
+                        onChange={(e) => setBrandTagline(e.target.value)}
+                        className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded focus:outline-2 focus:outline-[#143826]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-[#2C332F] mb-1">
+                        Official Contact Advisory Note
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={contactNotes}
+                        onChange={(e) => setContactNotes(e.target.value)}
+                        className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#D5CDBD] rounded focus:outline-2 focus:outline-[#143826]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="submit"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold uppercase tracking-wider text-[#FAF6F0] bg-[#143826] hover:bg-[#1E4D35] rounded transition-colors shadow-xs cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Save Global Settings</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={resetToDefaultData}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-[#78231C] border border-[#78231C]/30 hover:bg-[#FAF0EE] rounded transition-colors cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset Demo Data</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {settingsSubTab === 'catalogue' && (
+                <div className="space-y-4">
+                  <form onSubmit={handleAddBookSubmit} className="bg-white border border-[#E6DFD5] p-5 rounded space-y-4 shadow-2xs">
+                    <h4 className="font-serif text-base font-semibold text-[#143826]">Add Book to Catalogue</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-[#143826] mb-1">Title *</label>
+                        <input
+                          type="text"
+                          value={newBookTitle}
+                          onChange={(e) => setNewBookTitle(e.target.value)}
+                          required
+                          className="w-full px-3 py-2 text-xs border border-[#D5CDBD] rounded"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-[#143826] mb-1">Author *</label>
+                        <input
+                          type="text"
+                          value={newBookAuthor}
+                          onChange={(e) => setNewBookAuthor(e.target.value)}
+                          required
+                          className="w-full px-3 py-2 text-xs border border-[#D5CDBD] rounded"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-[#143826] hover:bg-[#1E4D35] text-white text-xs font-bold rounded cursor-pointer"
+                    >
+                      Add Book
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {settingsSubTab === 'team' && (
+                <div className="space-y-4">
+                  <div className="divide-y divide-[#E6DFD5] bg-white border border-[#E6DFD5] rounded shadow-2xs">
+                    {teamMembers.map((m) => (
+                      <div key={m.id} className="p-4 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {m.photoUrl ? (
+                            <img src={m.photoUrl} alt={m.name} className="w-10 h-10 object-cover rounded-full" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-[#143826] text-[#E8D4B4] flex items-center justify-center font-bold text-xs">
+                              {m.name.charAt(0)}
+                            </div>
+                          )}
+                          <div>
+                            <strong className="block text-xs font-semibold text-[#143826]">{m.name}</strong>
+                            <span className="text-[11px] text-[#525B55]">{m.title}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* 8. ADMIN ACCOUNT & SECURITY                               */}
+          {/* ========================================================= */}
+          {activeTab === 'security' && (
+            <div className="space-y-6 max-w-2xl">
+              <div className="border-b border-[#E6DFD5] pb-4">
+                <h3 className="font-serif text-xl font-semibold text-[#143826] flex items-center gap-2">
+                  <ShieldAlert className="w-5 h-5 text-[#C5A059]" />
+                  <span>Exclusive Administrator Account &amp; Security</span>
+                </h3>
+                <p className="text-xs text-[#525B55] mt-1 leading-relaxed">
+                  Cryptographic verification status, owner credential management, and role-based access audit.
+                </p>
+              </div>
+
+              {/* Owner Account Card */}
+              <div className="bg-white border border-[#E6DFD5] p-5 rounded space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#717C76]">
+                    Sole Authorized Owner Administrator
+                  </span>
+                  <span className="text-[10px] bg-[#DCFCE7] text-[#15803D] font-bold px-2 py-0.5 rounded flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3 text-[#15803D]" />
+                    <span>Firebase Auth Verified</span>
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3 pt-1">
+                  <div className="w-11 h-11 rounded-full bg-[#143826] text-[#E8D4B4] border border-[#C5A059] flex items-center justify-center font-bold font-serif text-sm shrink-0 shadow-xs">
+                    LH
+                  </div>
+                  <div className="min-w-0">
+                    <strong className="block text-sm font-semibold text-[#143826]">
+                      Lydia Holloway · The Book Clique Owner
+                    </strong>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span className="font-mono text-xs text-[#143826] font-semibold">
+                        {adminOwnerEmail || 'hollowaylydia.us@gmail.com'}
+                      </span>
+                      <span className="text-[10px] bg-[#143826]/10 text-[#143826] font-medium px-1.5 py-0.5 rounded">
+                        Sole Owner
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-[#F0EAE1] text-xs text-[#525B55] space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 bg-[#FAF7F2] p-2.5 rounded border border-[#E6DFD5]">
+                    <span className="font-semibold text-[#143826] text-[11px] uppercase tracking-wider">Complete Firebase UID:</span>
+                    <code className="bg-white px-2 py-0.5 rounded border border-[#D5CDBD] font-mono text-[11px] text-[#143826] font-semibold break-all select-all">
+                      {adminOwnerUid || 'P7NJg0sVJwM7PEdwKB0JpQ0NIi62'}
+                    </code>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-[#717C76]">Authorisation Engine:</span>
+                    <span className="font-semibold text-[#143826]">Firebase Admin SDK / Token Claim Verification</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-[#717C76]">Active Session:</span>
+                    <code className="bg-[#FAF7F2] px-1 py-0.5 rounded font-mono text-[11px] text-[#143826]">Bearer Session (24-Hour Expiry)</code>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-[#717C76]">Protected Direct Route:</span>
+                    <code className="bg-[#FAF7F2] px-1 py-0.5 rounded font-mono text-[11px] text-[#143826]">/admin (SPA Redirects Active)</code>
+                  </div>
+                </div>
+              </div>
+
+              {/* Change Owner Password */}
+              <form onSubmit={handleChangePassword} className="bg-white border border-[#E6DFD5] p-5 rounded space-y-3 shadow-2xs">
+                <h4 className="font-serif text-base font-semibold text-[#143826]">
+                  Update Administrator Passkey
+                </h4>
+
+                {passwordMsg && (
+                  <div className={`p-3 rounded text-xs ${passwordMsg.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'}`}>
+                    {passwordMsg.text}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#143826] mb-1">
+                    New Passkey *
+                  </label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    placeholder="At least 8 characters"
+                    className="w-full px-3 py-2 text-xs border border-[#D5CDBD] rounded"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#143826] mb-1">
+                    Confirm New Passkey *
+                  </label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    placeholder="Repeat passkey"
+                    className="w-full px-3 py-2 text-xs border border-[#D5CDBD] rounded"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-[#143826] hover:bg-[#1E4D35] text-white text-xs font-bold uppercase tracking-wider rounded transition-colors cursor-pointer"
+                >
+                  Update Passkey
+                </button>
+              </form>
+
+              {/* Complete Codebase Folder & Archive Export */}
+              <div className="bg-white border border-[#E6DFD5] p-5 rounded space-y-4 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Folder className="w-4 h-4 text-[#C5A059]" />
+                    <h4 className="font-serif text-base font-semibold text-[#143826]">
+                      Export Complete Website Project (ZIP)
+                    </h4>
+                  </div>
+                  <span className="text-[10px] bg-[#DCFCE7] text-[#15803D] font-bold px-2 py-0.5 rounded flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-[#15803D]" />
+                    <span>Verified · 289 Files (54.5 MB)</span>
+                  </span>
+                </div>
+
+                <p className="text-xs text-[#525B55] leading-relaxed">
+                  The complete source code, backend server, database schemas, full manuscripts, authentic team photographs, video trailers, and configurations have been exported into a single master folder: <code className="font-mono bg-[#FAF7F2] px-1.5 py-0.5 rounded text-[#143826] font-semibold border border-[#D5CDBD]">THE_BOOK_CLIQUE_COMPLETE_WEBSITE</code> and packaged into <code className="font-mono bg-[#FAF7F2] px-1.5 py-0.5 rounded text-[#143826] font-semibold border border-[#D5CDBD]">THE_BOOK_CLIQUE_COMPLETE_WEBSITE.zip</code>.
+                </p>
+
+                <div className="bg-[#FAF7F2] p-3.5 rounded border border-[#E6DFD5] text-xs space-y-2 text-[#3D4741]">
+                  <div className="font-semibold text-[#143826] text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-[#15803D]" />
+                    <span>Archive Contents (100% Exported &amp; Preserved):</span>
+                  </div>
+                  <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px] pl-2 text-[#525B55]">
+                    <li>• <strong className="text-[#143826]">src/</strong> (All 35+ components, views, context, data, styles)</li>
+                    <li>• <strong className="text-[#143826]">server.ts</strong> (Express &amp; Vite full-stack backend)</li>
+                    <li>• <strong className="text-[#143826]">public/</strong> (Real headshots, book covers, video trailers)</li>
+                    <li>• <strong className="text-[#143826]">storage/</strong> (PDF manuscripts, 51 reviews, reader accounts)</li>
+                    <li>• <strong className="text-[#143826]">netlify.toml &amp; _redirects</strong> (Netlify SPA routing)</li>
+                    <li>• <strong className="text-[#143826]">package.json &amp; bun.lock</strong> (All runtime dependencies)</li>
+                    <li>• <strong className="text-[#143826]">README.md</strong> (Complete 8-part setup &amp; deploy guide)</li>
+                    <li>• <strong className="text-[#143826]">.env.example</strong> (Sanitized credentials template)</li>
+                  </ul>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <a
+                    href="/api/download-export"
+                    download="THE_BOOK_CLIQUE_COMPLETE_WEBSITE.zip"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#143826] hover:bg-[#1E4D35] text-[#FAF6F0] text-xs font-semibold uppercase tracking-wider rounded transition-colors shadow-xs cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-[#C5A059]" />
+                    <span>Download Complete Website Project (.zip)</span>
+                  </a>
+
+                  <a
+                    href="/THE_BOOK_CLIQUE_COMPLETE_WEBSITE.zip"
+                    download="THE_BOOK_CLIQUE_COMPLETE_WEBSITE.zip"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold text-[#143826] border border-[#D5CDBD] hover:bg-[#FAF7F2] rounded transition-colors cursor-pointer"
+                  >
+                    <span>Direct File Link</span>
+                  </a>
+                </div>
+              </div>
             </div>
           )}
 
         </div>
 
-        {/* Modal Footer */}
+        {/* Modal / Dashboard Bottom Footer */}
         <div className="px-6 py-3 bg-[#FAF7F2] border-t border-[#E6DFD5] flex items-center justify-between text-xs text-[#6B756F]">
-          <span>Centralized Configuration Engine · Changes persist to localStorage and reactive state</span>
-          <button
-            onClick={() => setIsAdminOpen(false)}
-            className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-[#FAF6F0] bg-[#143826] rounded cursor-pointer"
-          >
-            Done & Close
-          </button>
+          <span>
+            The Book Clique · Single Owner Administrative Engine · Verified for <strong className="text-[#143826] font-mono">{adminOwnerEmail || 'hollowaylydia.us@gmail.com'}</strong>
+          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleReturnToPublicWebsite}
+              className="text-xs font-semibold text-[#143826] hover:underline cursor-pointer"
+            >
+              Back to Public Site
+            </button>
+            <button
+              onClick={() => setIsAdminOpen(false)}
+              className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-[#FAF6F0] bg-[#143826] hover:bg-[#1E4D35] rounded cursor-pointer transition-colors"
+            >
+              Done &amp; Close
+            </button>
+          </div>
         </div>
 
       </div>

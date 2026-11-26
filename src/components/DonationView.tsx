@@ -124,10 +124,9 @@ export const DonationView: React.FC = () => {
                 <div>
                   <div className="aspect-[16/10] overflow-hidden bg-[#ECE6DC] relative">
                     <img
-                      src="https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?auto=format&fit=crop&w=800&q=80"
+                      src="/images/unsplash/photo-1488521787991-ed7bbaae773c-w800.jpg"
                       alt="African schoolchildren smiling and learning in a classroom with notebooks"
                       className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
                     />
                     <div className="absolute top-3 left-3 bg-[#143826]/90 text-[#FAF6F0] px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider backdrop-blur-xs flex items-center gap-1.5">
                       <GraduationCap className="w-3.5 h-3.5 text-[#C5A059]" />
@@ -155,10 +154,9 @@ export const DonationView: React.FC = () => {
                 <div>
                   <div className="aspect-[16/10] overflow-hidden bg-[#ECE6DC] relative">
                     <img
-                      src="https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?auto=format&fit=crop&w=800&q=80"
+                      src="/images/unsplash/photo-1469571486292-0ba58a3f068b-w800.jpg"
                       alt="Volunteers and community members offering shelter, warm meals, and care"
                       className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
                     />
                     <div className="absolute top-3 left-3 bg-[#143826]/90 text-[#FAF6F0] px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider backdrop-blur-xs flex items-center gap-1.5">
                       <HomeIcon className="w-3.5 h-3.5 text-[#C5A059]" />
@@ -186,10 +184,9 @@ export const DonationView: React.FC = () => {
                 <div>
                   <div className="aspect-[16/10] overflow-hidden bg-[#ECE6DC] relative">
                     <img
-                      src="https://images.unsplash.com/photo-1509099836639-18ba1795216d?auto=format&fit=crop&w=800&q=80"
+                      src="/images/unsplash/photo-1509099836639-18ba1795216d-w800.jpg"
                       alt="Young African community learners gathered together with hope and dignity"
                       className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
                     />
                     <div className="absolute top-3 left-3 bg-[#143826]/90 text-[#FAF6F0] px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider backdrop-blur-xs flex items-center gap-1.5">
                       <Globe className="w-3.5 h-3.5 text-[#C5A059]" />

@@ -1,0 +1,6 @@
+{
+  "name": "The Book Clique",
+  "description": "A refined literary community and author-services platform connecting readers, authors, and book lovers with curated discovery and transparent promotion.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

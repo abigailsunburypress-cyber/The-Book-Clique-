@@ -59,9 +59,13 @@ export const SecurePdfReader: React.FC<SecurePdfReaderProps> = ({
     if (activeReaderInitialPage && activeReaderInitialPage >= 1) {
       return activeReaderInitialPage;
     }
-    const saved = localStorage.getItem(`tbc_read_page_${manuscript.id}`);
-    const parsed = saved ? parseInt(saved, 10) || 1 : 1;
-    return maxUnlockedPage > 0 ? Math.min(parsed, maxUnlockedPage) : parsed;
+    try {
+      const saved = localStorage.getItem(`tbc_read_page_${manuscript.id}`);
+      const parsed = saved ? parseInt(saved, 10) || 1 : 1;
+      return maxUnlockedPage > 0 ? Math.min(parsed, maxUnlockedPage) : parsed;
+    } catch {
+      return 1;
+    }
   });
   const [totalPages, setTotalPages] = useState<number>(manuscript.pageCount || 1);
   const [scale, setScale] = useState<number>(1.2);
@@ -92,7 +96,11 @@ export const SecurePdfReader: React.FC<SecurePdfReaderProps> = ({
   // Save reading progress to local storage
   useEffect(() => {
     if (currentPage > 0) {
-      localStorage.setItem(`tbc_read_page_${manuscript.id}`, String(currentPage));
+      try {
+        localStorage.setItem(`tbc_read_page_${manuscript.id}`, String(currentPage));
+      } catch {
+        // Ignore storage restrictions
+      }
     }
   }, [currentPage, manuscript.id]);
 

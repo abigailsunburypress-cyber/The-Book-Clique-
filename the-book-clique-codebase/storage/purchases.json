@@ -1,0 +1,34 @@
+[
+  {
+    "purchaseId": "pch_1793178921784_74321cd2fb46",
+    "manuscriptId": "ethans-presence",
+    "customerName": "Jane Doe",
+    "customerEmail": "jane@example.com",
+    "purchasedAt": "2026-10-28T09:15:21.785Z",
+    "priceUsd": 20
+  },
+  {
+    "purchaseId": "pch_1793179627087_0d5c8b3b8dae",
+    "manuscriptId": "shannons-legacy",
+    "customerName": "Robert Lang",
+    "customerEmail": "robert@example.com",
+    "purchasedAt": "2026-10-28T09:27:07.087Z",
+    "priceUsd": 20
+  },
+  {
+    "purchaseId": "pch_1793357737932_f29c16bbe0ec",
+    "manuscriptId": "trvomh-part1",
+    "customerName": "Test Reader",
+    "customerEmail": "testreader@example.com",
+    "purchasedAt": "2026-10-30T10:55:37.932Z",
+    "priceUsd": 20
+  },
+  {
+    "purchaseId": "pch_1793357745700_3530539e8c3e",
+    "manuscriptId": "the-last-prussian",
+    "customerName": "Test Reader 2",
+    "customerEmail": "reader2@example.com",
+    "purchasedAt": "2026-10-30T10:55:45.700Z",
+    "priceUsd": 20
+  }
+]

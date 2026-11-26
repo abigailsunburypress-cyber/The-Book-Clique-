@@ -26,5 +26,12 @@
     "email": "jane.doe@example.com",
     "source": "registration",
     "registeredAt": "2026-11-04T10:50:38.422Z"
+  },
+  {
+    "id": "rdr_1795612428705_03cad0b9",
+    "name": "Test Reader Check",
+    "email": "test_verify_check@example.com",
+    "source": "registration",
+    "registeredAt": "2026-11-25T13:13:48.705Z"
   }
 ]

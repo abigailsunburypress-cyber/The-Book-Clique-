@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Menu, X, Settings } from 'lucide-react';
+import { Menu, X, ExternalLink } from 'lucide-react';
 import { useApp, PageView } from '../context/AppContext';
 
+const PORTFOLIO_URL = 'https://thebookcliqueportfolio.netlify.app/';
+
 export const Navbar: React.FC = () => {
-  const { activeView, setActiveView, setIsAdminOpen } = useApp();
+  const { activeView, setActiveView } = useApp();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks: { label: string; view: PageView }[] = [
@@ -26,20 +28,22 @@ export const Navbar: React.FC = () => {
   return (
     <header className="sticky top-0 z-40 bg-[#FBF9F5]/95 backdrop-blur-md border-b border-[#E6DFD5] transition-all">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between gap-8 h-20">
+        <div className="flex items-center justify-between gap-3 2xl:gap-6 h-20">
           
           {/* Zone 1: Official Brand Logo & Name */}
           <button
             onClick={() => handleNavClick('home')}
-            className="flex items-center gap-3 text-left group focus-visible:outline-2 focus-visible:outline-[#143826] cursor-pointer shrink-0"
+            className="flex items-center gap-2.5 text-left group focus-visible:outline-2 focus-visible:outline-[#143826] cursor-pointer shrink-0"
             aria-label="The Book Clique - Return to Home"
           >
-            <img
-              src="/assets/aistudio/The_Book_Clique_Emblem_d9f03a53.png"
-              alt="The Book Clique Emblem"
-              className="h-11 sm:h-12 w-auto object-contain rounded-xs shadow-xs transition-transform group-hover:scale-[1.03]"
-            />
-            <span className="font-serif text-2xl sm:text-3xl font-semibold tracking-tight text-[#143826] whitespace-nowrap group-hover:text-[#23583C] transition-colors">
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-[50%] overflow-hidden bg-[#FAF8F5] p-0.5 border border-[#C5A059]/60 shadow-xs flex items-center justify-center shrink-0 transition-all duration-300 group-hover:scale-[1.04] group-hover:border-[#C5A059]">
+              <img
+                src="/assets/aistudio/The_Book_Clique_Emblem_d9f03a53.png"
+                alt="The Book Clique Emblem"
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <span className="font-serif text-xl sm:text-2xl 2xl:text-3xl font-semibold tracking-tight text-[#143826] whitespace-nowrap group-hover:text-[#23583C] transition-colors">
               The Book Clique
             </span>
           </button>
@@ -47,7 +51,7 @@ export const Navbar: React.FC = () => {
           {/* Zone 2: Navigation Links (Desktop) */}
           <nav
             aria-label="Main Navigation"
-            className="hidden xl:flex items-center gap-6 text-sm font-medium text-[#383D39]"
+            className="hidden xl:flex items-center gap-3.5 2xl:gap-5 text-xs 2xl:text-sm font-medium text-[#383D39]"
           >
             {navLinks.map((item) => {
               const isActive = activeView === item.view;
@@ -71,25 +75,25 @@ export const Navbar: React.FC = () => {
                 </button>
               );
             })}
+
+            <a
+              href={PORTFOLIO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative py-1 whitespace-nowrap shrink-0 text-[#4A524D] hover:text-[#143826] transition-colors inline-flex items-center gap-1"
+            >
+              <span>The Book Clique / Portfolio</span>
+              <ExternalLink className="w-3 h-3 text-[#8C6D23]" aria-hidden="true" />
+            </a>
           </nav>
 
-          {/* Zone 3: Primary Action & Admin Studio Trigger */}
+          {/* Zone 3: Primary Action & Mobile Drawer Toggle */}
           <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={() => handleNavClick('catalogue')}
-              className="hidden sm:inline-flex items-center justify-center px-4 py-2 text-xs font-semibold tracking-wide uppercase text-[#FBF9F5] bg-[#143826] hover:bg-[#1D4F36] active:bg-[#0F2A1D] rounded transition-colors whitespace-nowrap shrink-0 shadow-xs cursor-pointer focus-visible:outline-2 focus-visible:outline-[#143826]"
+              className="hidden sm:inline-flex items-center justify-center px-3.5 py-2 text-xs font-semibold tracking-wide uppercase text-[#FBF9F5] bg-[#143826] hover:bg-[#1D4F36] active:bg-[#0F2A1D] rounded transition-colors whitespace-nowrap shrink-0 shadow-xs cursor-pointer focus-visible:outline-2 focus-visible:outline-[#143826]"
             >
               Explore Catalogue
-            </button>
-
-            {/* Admin CMS Access Button */}
-            <button
-              onClick={() => setIsAdminOpen(true)}
-              className="p-2 text-[#5A635D] hover:text-[#143826] hover:bg-[#EFECE4] rounded transition-colors cursor-pointer"
-              title="Open Website Administration & Content Management"
-              aria-label="Open Admin & CMS Studio"
-            >
-              <Settings className="w-5 h-5" />
             </button>
 
             {/* Mobile menu hamburger */}
@@ -125,6 +129,16 @@ export const Navbar: React.FC = () => {
                 </button>
               );
             })}
+            <a
+              href={PORTFOLIO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center justify-between text-left px-3 py-2.5 rounded text-base font-medium text-[#2A302C] hover:bg-[#EFECE4] transition-colors"
+            >
+              <span>The Book Clique / Portfolio</span>
+              <ExternalLink className="w-4 h-4 text-[#8C6D23]" />
+            </a>
             <div className="pt-3 border-t border-[#E6DFD5] flex flex-col gap-2">
               <button
                 onClick={() => handleNavClick('catalogue')}
@@ -137,15 +151,6 @@ export const Navbar: React.FC = () => {
                 className="w-full text-center px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[#143826] bg-[#FAF6F0] border border-[#C5A059]/50 rounded hover:bg-[#F0EBE1] flex items-center justify-center gap-1.5"
               >
                 <span>Identity Verification &amp; Customer Care</span>
-              </button>
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  setIsAdminOpen(true);
-                }}
-                className="w-full text-center px-4 py-2 text-xs font-medium text-[#4A524D] border border-[#D5CDBD] rounded hover:bg-[#EFECE4]"
-              >
-                Admin &amp; Content Settings
               </button>
             </div>
           </nav>

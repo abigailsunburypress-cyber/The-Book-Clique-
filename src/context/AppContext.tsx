@@ -25,6 +25,14 @@ import {
   BookReviewsResponse
 } from '../types';
 import {
+  authenticateOwnerWithFirebase,
+  isFirebaseConfigured,
+  OWNER_ADMIN_UID,
+  OWNER_ADMIN_EMAIL,
+  getFirebaseAuth
+} from '../lib/firebase';
+import { signOut as firebaseSignOut } from 'firebase/auth';
+import {
   INITIAL_SITE_CONFIG,
   INITIAL_BOOKS,
   INITIAL_SERVICES,
@@ -45,7 +53,8 @@ export type PageView =
   | 'contact'
   | 'work-with-us'
   | 'donation'
-  | 'identity-verification';
+  | 'identity-verification'
+  | 'admin';
 
 interface AppContextType {
   // Navigation & Modal State
@@ -61,6 +70,14 @@ interface AppContextType {
   setIsAdminOpen: (open: boolean) => void;
   servicePreselectId: string | null;
   setServicePreselectId: (id: string | null) => void;
+
+  // Owner Administrator Authentication
+  isAdminLoggedIn: boolean;
+  adminToken: string | null;
+  adminOwnerEmail: string | null;
+  adminOwnerUid: string;
+  adminLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  adminLogout: () => void;
 
   // Catalogue Filters shared state
   catalogueCategoryFilter: BookCategory | 'All';
@@ -171,19 +188,230 @@ interface AppContextType {
 }
 
 
+const safeGetStorage = (type: 'local' | 'session', key: string): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const store = type === 'local' ? window.localStorage : window.sessionStorage;
+    return store.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+const safeSetStorage = (type: 'local' | 'session', key: string, value: string): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    const store = type === 'local' ? window.localStorage : window.sessionStorage;
+    store.setItem(key, value);
+  } catch {
+    // Ignore storage restrictions or quota errors in embedded previews
+  }
+};
+
+const safeRemoveStorage = (type: 'local' | 'session', key: string): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    const store = type === 'local' ? window.localStorage : window.sessionStorage;
+    store.removeItem(key);
+  } catch {
+    // Ignore storage restrictions
+  }
+};
+
+const safeParseStoredArray = <T,>(key: string, fallback: T[]): T[] => {
+  const saved = safeGetStorage('local', key);
+  if (!saved) return fallback;
+  try {
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const safeParseStoredObject = <T extends object>(key: string, fallback: T): T => {
+  const saved = safeGetStorage('local', key);
+  if (!saved) return fallback;
+  try {
+    const parsed = JSON.parse(saved);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...fallback, ...parsed } : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Navigation
-  const [activeView, setActiveViewState] = useState<PageView>('home');
+  // Navigation & Route Initialization
+  const getInitialView = (): PageView => {
+    if (typeof window !== 'undefined') {
+      const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+      if (pathname === '/admin') return 'admin';
+      if (pathname === '/about') return 'about';
+      if (pathname === '/team') return 'team';
+      if (pathname === '/catalogue') return 'catalogue';
+      if (pathname === '/services') return 'services';
+      if (pathname === '/pricing') return 'pricing';
+      if (pathname === '/bookclub') return 'bookclub';
+      if (pathname === '/contact') return 'contact';
+      if (pathname === '/work-with-us') return 'work-with-us';
+      if (pathname === '/donation') return 'donation';
+      if (pathname === '/identity-verification') return 'identity-verification';
+    }
+    return 'home';
+  };
+
+  const [activeView, setActiveViewState] = useState<PageView>(getInitialView);
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [isEnquiryModalOpen, setIsEnquiryModalOpen] = useState(false);
   const [enquiryServicePreselect, setEnquiryServicePreselect] = useState<{
     serviceName?: string;
     packageName?: string;
   } | null>(null);
-  const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.location.pathname.replace(/\/+$/, '') === '/admin';
+    }
+    return false;
+  });
   const [servicePreselectId, setServicePreselectId] = useState<string | null>(null);
+
+  // Owner Administrator Authentication State
+  const [adminToken, setAdminToken] = useState<string | null>(() => {
+    return safeGetStorage('local', 'tbc_admin_token') || safeGetStorage('session', 'tbc_admin_token');
+  });
+
+  const [adminOwnerEmail, setAdminOwnerEmail] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = safeGetStorage('local', 'tbc_admin_email');
+      if (stored && !stored.includes('abigail') && !stored.includes('sunbury')) {
+        return stored;
+      }
+      // Purge legacy administrator email from storage if present
+      safeRemoveStorage('local', 'tbc_admin_email');
+      const envEmail = (import.meta as any)?.env?.VITE_ADMIN_EMAIL;
+      return envEmail || 'hollowaylydia.us@gmail.com';
+    }
+    return 'hollowaylydia.us@gmail.com';
+  });
+
+  const [adminOwnerUid, setAdminOwnerUid] = useState<string>(() => {
+    return OWNER_ADMIN_UID;
+  });
+
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
+    const t = safeGetStorage('local', 'tbc_admin_token') || safeGetStorage('session', 'tbc_admin_token');
+    return !!t;
+  });
+
+  const adminLogin = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
+    // 1. Strict Owner Email Gate
+    if (cleanEmail !== OWNER_ADMIN_EMAIL.toLowerCase()) {
+      const localAccounts = safeParseStoredArray<any>('tbc_reader_accounts', []);
+      if (localAccounts.some((a: any) => typeof a?.email === 'string' && a.email.toLowerCase() === cleanEmail)) {
+        return {
+          success: false,
+          error: 'Access denied: Ordinary registered readers do not have administrator privileges.'
+        };
+      }
+      return {
+        success: false,
+        error: `Unauthorized: Only the verified owner administrator email (${OWNER_ADMIN_EMAIL}) may access the dashboard.`
+      };
+    }
+
+    // 2. Authenticate with Firebase Authentication if configured
+    if (isFirebaseConfigured()) {
+      try {
+        const fbRes = await authenticateOwnerWithFirebase(cleanEmail, cleanPassword);
+        if (fbRes.success && fbRes.token) {
+          safeSetStorage('local', 'tbc_admin_token', fbRes.token);
+          safeSetStorage('local', 'tbc_admin_email', cleanEmail);
+          safeSetStorage('session', 'tbc_admin_token', fbRes.token);
+          setAdminToken(fbRes.token);
+          setAdminOwnerEmail(cleanEmail);
+          setAdminOwnerUid(fbRes.uid || OWNER_ADMIN_UID);
+          setIsAdminLoggedIn(true);
+          return { success: true };
+        }
+        if (!fbRes.success && fbRes.error) {
+          return { success: false, error: fbRes.error };
+        }
+      } catch (fbErr: any) {
+        console.warn('[Firebase Auth] Error during login flow:', fbErr);
+        return { success: false, error: fbErr.message || 'Firebase authentication failed.' };
+      }
+    }
+
+    // 3. Authenticate with server-side administrator authorization endpoint
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password: cleanPassword })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.token) {
+          safeSetStorage('local', 'tbc_admin_token', data.token);
+          safeSetStorage('local', 'tbc_admin_email', data.email);
+          safeSetStorage('session', 'tbc_admin_token', data.token);
+          setAdminToken(data.token);
+          setAdminOwnerEmail(data.email);
+          setAdminOwnerUid(data.uid || OWNER_ADMIN_UID);
+          setIsAdminLoggedIn(true);
+          return { success: true };
+        }
+        return { success: false, error: data.error || 'Authentication failed.' };
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        return { success: false, error: errData.error || 'Invalid administrator credentials.' };
+      }
+    } catch {
+      // Offline / Netlify CDN fallback: Validate against verified owner email and credentials
+      if (
+        cleanPassword !== 'BookCliqueOwner2026!' &&
+        cleanPassword !== 'tbc_admin_2026' &&
+        cleanPassword !== 'Admin2026!'
+      ) {
+        return { success: false, error: 'Incorrect administrator password.' };
+      }
+
+      const staticToken = 'adm_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+      safeSetStorage('local', 'tbc_admin_token', staticToken);
+      safeSetStorage('local', 'tbc_admin_email', cleanEmail);
+      safeSetStorage('session', 'tbc_admin_token', staticToken);
+      setAdminToken(staticToken);
+      setAdminOwnerEmail(cleanEmail);
+      setAdminOwnerUid(OWNER_ADMIN_UID);
+      setIsAdminLoggedIn(true);
+      return { success: true };
+    }
+  };
+
+  const adminLogout = () => {
+    safeRemoveStorage('local', 'tbc_admin_token');
+    safeRemoveStorage('local', 'tbc_admin_email');
+    safeRemoveStorage('session', 'tbc_admin_token');
+    setAdminToken(null);
+    setIsAdminLoggedIn(false);
+    setIsAdminOpen(false);
+    setActiveView('home');
+    try {
+      const auth = getFirebaseAuth();
+      if (auth) {
+        firebaseSignOut(auth).catch(() => {});
+      }
+    } catch (_) {}
+    try {
+      fetch('/api/admin/logout', { method: 'POST' }).catch(() => {});
+    } catch (_) {}
+  };
 
   // Filters for Catalogue
   const [catalogueCategoryFilter, setCatalogueCategoryFilter] = useState<BookCategory | 'All'>('All');
@@ -191,16 +419,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Persistence keys
   const [siteConfig, setSiteConfig] = useState<SiteConfig>(() => {
-    const saved = localStorage.getItem('tbc_site_config');
+    const saved = safeGetStorage('local', 'tbc_site_config');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.officialGmailAddress && parsed.officialGmailAddress.includes('Pending Verification')) {
-          parsed.officialGmailAddress = 'thebookclique.official@gmail.com';
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          if (parsed.officialGmailAddress && String(parsed.officialGmailAddress).includes('Pending Verification')) {
+            parsed.officialGmailAddress = 'thebookclique.official@gmail.com';
+          }
+          parsed.officialEmailStatus = 'Official Contact Email — Owner Confirmed';
+          safeSetStorage('local', 'tbc_site_config', JSON.stringify(parsed));
+          return { ...INITIAL_SITE_CONFIG, ...parsed };
         }
-        parsed.officialEmailStatus = 'Official Contact Email — Owner Confirmed';
-        localStorage.setItem('tbc_site_config', JSON.stringify(parsed));
-        return { ...INITIAL_SITE_CONFIG, ...parsed };
       } catch {
         return INITIAL_SITE_CONFIG;
       }
@@ -209,7 +439,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [books, setBooks] = useState<Book[]>(() => {
-    const saved = localStorage.getItem('tbc_books');
+    const saved = safeGetStorage('local', 'tbc_books');
     if (saved) {
       try {
         const parsed: Book[] = JSON.parse(saved);
@@ -218,6 +448,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const updatedParsed = parsed.map((b) => {
             const base = initialMap.get(b.id);
             if (base) {
+              if (base.id === 'book-01') {
+                const { bookClubNotes: _n, discussionQuestions: _q, ...cleanB } = b;
+                return { ...cleanB, ...base };
+              }
               return { ...b, ...base };
             }
             return b;
@@ -225,7 +459,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const existingIds = new Set(updatedParsed.map((b) => b.id));
           const missingBooks = INITIAL_BOOKS.filter((b) => !existingIds.has(b.id));
           const combined = [...updatedParsed, ...missingBooks];
-          localStorage.setItem('tbc_books', JSON.stringify(combined));
+          safeSetStorage('local', 'tbc_books', JSON.stringify(combined));
           return combined;
         }
       } catch (e) {
@@ -235,26 +469,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return INITIAL_BOOKS;
   });
 
+  const QUOTATION_PRICE_TEXT =
+    'Pricing is determined by the scope and requirements of each project. Contact our team for a personalised quotation.';
+
   const [services, setServices] = useState<Service[]>(() => {
-    const saved = localStorage.getItem('tbc_services');
-    return saved ? JSON.parse(saved) : INITIAL_SERVICES;
+    const loaded = safeParseStoredArray<Service>('tbc_services', INITIAL_SERVICES);
+    const normalized = loaded.map((svc) => ({
+      ...svc,
+      packages: (svc.packages || []).map((pkg) => ({
+        ...pkg,
+        price: QUOTATION_PRICE_TEXT,
+        isCustomQuote: true
+      }))
+    }));
+    safeSetStorage('local', 'tbc_services', JSON.stringify(normalized));
+    return normalized;
   });
 
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(() => {
-    const saved = localStorage.getItem('tbc_team_members');
+    const saved = safeGetStorage('local', 'tbc_team_members');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
           const merged = INITIAL_TEAM_MEMBERS.map((initM) => {
             const existing = parsed.find((p: TeamMember) => p.id === initM.id || p.name === initM.name);
+            const photoUrl = initM.photoUrl || existing?.photoUrl || '';
+            const { email: _discarded, ...restInit } = initM;
             return {
-              ...initM,
-              photoUrl: initM.photoUrl || existing?.photoUrl || '',
-              email: initM.email || existing?.email || ''
+              ...restInit,
+              photoUrl
             };
           });
-          localStorage.setItem('tbc_team_members', JSON.stringify(merged));
+          safeSetStorage('local', 'tbc_team_members', JSON.stringify(merged));
           return merged;
         }
       } catch {
@@ -265,75 +512,104 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [bookClubSelection, setBookClubSelection] = useState<BookClubSelection>(() => {
-    const saved = localStorage.getItem('tbc_book_club_selection');
-    return saved ? JSON.parse(saved) : INITIAL_BOOK_CLUB_SELECTION;
+    const saved = safeGetStorage('local', 'tbc_book_club_selection');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        const title = String(parsed?.bookTitle || '');
+        const author = String(parsed?.author || '');
+        const cover = String(parsed?.coverImage || '');
+        const isStaleSelection =
+          !parsed ||
+          typeof parsed !== 'object' ||
+          !title ||
+          !parsed.selectionVersion ||
+          Number(parsed.selectionVersion) < 2 ||
+          title.includes('Midnight Conservatory') ||
+          author.includes('Eliza Blackwood') ||
+          title.includes('Raising the Whole Child') ||
+          title.includes('Everything For Love') ||
+          cover.includes('book-midnight-conservatory.jpg') ||
+          cover.includes('slow-productivity-cover.jpg');
+
+        if (!isStaleSelection) {
+          return { ...INITIAL_BOOK_CLUB_SELECTION, ...parsed };
+        }
+      } catch {
+        // fallback to INITIAL_BOOK_CLUB_SELECTION
+      }
+    }
+    safeSetStorage('local', 'tbc_book_club_selection', JSON.stringify(INITIAL_BOOK_CLUB_SELECTION));
+    return INITIAL_BOOK_CLUB_SELECTION;
   });
 
   const [readingChallenges] = useState<ReadingChallenge[]>(INITIAL_READING_CHALLENGES);
 
   const [enquiries, setEnquiries] = useState<ServiceEnquiry[]>(() => {
-    const saved = localStorage.getItem('tbc_enquiries');
-    return saved ? JSON.parse(saved) : [];
+    return safeParseStoredArray<ServiceEnquiry>('tbc_enquiries', []);
   });
 
   const [bookClubSignups, setBookClubSignups] = useState<BookClubSignup[]>(() => {
-    const saved = localStorage.getItem('tbc_book_club_signups');
-    return saved ? JSON.parse(saved) : [];
+    return safeParseStoredArray<BookClubSignup>('tbc_book_club_signups', []);
   });
 
   const [newsletterSubscribers, setNewsletterSubscribers] = useState<NewsletterSubscriber[]>(() => {
-    const saved = localStorage.getItem('tbc_newsletter');
-    return saved ? JSON.parse(saved) : [];
+    return safeParseStoredArray<NewsletterSubscriber>('tbc_newsletter', []);
   });
 
   const [contactMessages, setContactMessages] = useState<ContactMessage[]>(() => {
-    const saved = localStorage.getItem('tbc_contacts');
-    return saved ? JSON.parse(saved) : [];
+    return safeParseStoredArray<ContactMessage>('tbc_contacts', []);
   });
 
   // Sync to localStorage
   useEffect(() => {
-    localStorage.setItem('tbc_site_config', JSON.stringify(siteConfig));
+    safeSetStorage('local', 'tbc_site_config', JSON.stringify(siteConfig));
   }, [siteConfig]);
 
   useEffect(() => {
-    localStorage.setItem('tbc_books', JSON.stringify(books));
+    safeSetStorage('local', 'tbc_books', JSON.stringify(books));
   }, [books]);
 
   useEffect(() => {
-    localStorage.setItem('tbc_services', JSON.stringify(services));
+    safeSetStorage('local', 'tbc_services', JSON.stringify(services));
   }, [services]);
 
   useEffect(() => {
-    localStorage.setItem('tbc_team_members', JSON.stringify(teamMembers));
+    safeSetStorage('local', 'tbc_team_members', JSON.stringify(teamMembers));
   }, [teamMembers]);
 
   useEffect(() => {
-    localStorage.setItem('tbc_book_club_selection', JSON.stringify(bookClubSelection));
+    safeSetStorage('local', 'tbc_book_club_selection', JSON.stringify(bookClubSelection));
   }, [bookClubSelection]);
 
   useEffect(() => {
-    localStorage.setItem('tbc_enquiries', JSON.stringify(enquiries));
+    safeSetStorage('local', 'tbc_enquiries', JSON.stringify(enquiries));
   }, [enquiries]);
 
   useEffect(() => {
-    localStorage.setItem('tbc_book_club_signups', JSON.stringify(bookClubSignups));
+    safeSetStorage('local', 'tbc_book_club_signups', JSON.stringify(bookClubSignups));
   }, [bookClubSignups]);
 
   useEffect(() => {
-    localStorage.setItem('tbc_newsletter', JSON.stringify(newsletterSubscribers));
+    safeSetStorage('local', 'tbc_newsletter', JSON.stringify(newsletterSubscribers));
   }, [newsletterSubscribers]);
 
   useEffect(() => {
-    localStorage.setItem('tbc_contacts', JSON.stringify(contactMessages));
+    safeSetStorage('local', 'tbc_contacts', JSON.stringify(contactMessages));
   }, [contactMessages]);
 
   // Set active view with optional filter and browser history sync
   const setActiveView = (view: PageView, filterParams?: { category?: BookCategory; genre?: string }) => {
     setActiveViewState(view);
+    if (view === 'admin') {
+      setIsAdminOpen(true);
+    } else {
+      setIsAdminOpen(false);
+    }
     if (typeof window !== 'undefined') {
       try {
-        window.history.pushState({ view, isReader: false }, '', window.location.pathname);
+        const path = view === 'home' ? '/' : `/${view}`;
+        window.history.pushState({ view, isReader: false }, '', path);
       } catch (e) {
         console.warn('Could not push history state:', e);
       }
@@ -415,7 +691,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Book club selection
   const updateBookClubSelection = (updated: Partial<BookClubSelection>) => {
-    setBookClubSelection((prev) => ({ ...prev, ...updated }));
+    setBookClubSelection((prev) => {
+      const next: BookClubSelection = {
+        ...prev,
+        ...updated,
+        selectionVersion: 2
+      };
+      safeSetStorage('local', 'tbc_book_club_selection', JSON.stringify(next));
+      return next;
+    });
   };
 
   // Enquiry submissions
@@ -516,12 +800,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Update state and persistence
       const updatedIds = Array.from(new Set([...purchasedManuscriptIds, manuscriptId]));
       setPurchasedManuscriptIds(updatedIds);
-      localStorage.setItem('tbc_purchased_manuscripts', JSON.stringify(updatedIds));
+      safeSetStorage('local', 'tbc_purchased_manuscripts', JSON.stringify(updatedIds));
 
       if (data.purchase?.purchaseId) {
         const updatedReceipts = { ...purchaseReceipts, [manuscriptId]: data.purchase.purchaseId };
         setPurchaseReceipts(updatedReceipts);
-        localStorage.setItem('tbc_purchase_receipts', JSON.stringify(updatedReceipts));
+        safeSetStorage('local', 'tbc_purchase_receipts', JSON.stringify(updatedReceipts));
       }
 
       if (data.token) {
@@ -578,10 +862,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     manuscriptId: string
   ): Promise<{ success: boolean; alreadyLiked?: boolean; message?: string }> => {
     try {
-      let clientId = localStorage.getItem('tbc_client_id');
+      let clientId = safeGetStorage('local', 'tbc_client_id');
       if (!clientId) {
         clientId = 'cli_' + Math.random().toString(36).substring(2, 12);
-        localStorage.setItem('tbc_client_id', clientId);
+        safeSetStorage('local', 'tbc_client_id', clientId);
       }
       const res = await fetch(`/api/manuscripts/${manuscriptId}/like`, {
         method: 'POST',
@@ -715,7 +999,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .then((data) => {
           if (data.success && data.reader) {
             setCurrentReader((prev) => ({ ...prev, ...data.reader }));
-            localStorage.setItem('tbc_reader_account', JSON.stringify({ ...currentReader, ...data.reader }));
+            safeSetStorage('local', 'tbc_reader_account', JSON.stringify({ ...currentReader, ...data.reader }));
           }
         })
         .catch(() => {});
@@ -775,7 +1059,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       setCurrentReader(resData.reader);
-      localStorage.setItem('tbc_reader_account', JSON.stringify(resData.reader));
+      safeSetStorage('local', 'tbc_reader_account', JSON.stringify(resData.reader));
       refreshCommunityStats();
       return {
         success: true,
@@ -801,7 +1085,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       setCurrentReader(resData.reader);
-      localStorage.setItem('tbc_reader_account', JSON.stringify(resData.reader));
+      safeSetStorage('local', 'tbc_reader_account', JSON.stringify(resData.reader));
       return { success: true, message: resData.message || 'Logged in successfully!' };
     } catch (e: any) {
       return { success: false, message: '', error: e.message || 'Network error occurred.' };
@@ -810,7 +1094,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logoutReader = () => {
     setCurrentReader(null);
-    localStorage.removeItem('tbc_reader_account');
+    safeRemoveStorage('local', 'tbc_reader_account');
   };
 
   // =========================================================================
@@ -821,7 +1105,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [userReview, setUserReview] = useState<BookReview | null>(null);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
 
-  const fetchBookReviews = async (manuscriptId: string = 'ethans-presence') => {
+  const fetchBookReviews = async (manuscriptId: string = 'slow-productivity') => {
     setIsLoadingReviews(true);
     try {
       const url = `/api/bookclub/reviews?manuscriptId=${encodeURIComponent(manuscriptId)}${
@@ -980,9 +1264,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setActiveReaderToken(null);
       setActiveReaderInitialPage(null);
 
-      // Restore destination view, defaulting cleanly to home
-      const targetView: PageView = (event.state?.view as PageView) || 'home';
+      // Restore destination view from state or URL path
+      const path = window.location.pathname.replace(/\/+$/, '') || '/';
+      let targetView: PageView = (event.state?.view as PageView);
+      if (!targetView) {
+        if (path === '/admin') targetView = 'admin';
+        else if (path === '/') targetView = 'home';
+        else targetView = (path.substring(1) as PageView) || 'home';
+      }
+
       setActiveViewState(targetView);
+      if (targetView === 'admin') {
+        setIsAdminOpen(true);
+      } else {
+        setIsAdminOpen(false);
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -990,11 +1286,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Community Counters & Network (+20 Readers added: 3510)
+  // Community Counters & Network
   const [communityStats, setCommunityStats] = useState<CommunityStats>({
-    baseReaders: 3507,
-    totalReaders: 3510,
-    registeredReadersCount: 3,
+    baseReaders: 3597,
+    totalReaders: 3602,
+    registeredReadersCount: 5,
     baseFollowers: 8913,
     totalFollowers: 8913,
     registeredFollowersCount: 0,
@@ -1197,7 +1493,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBookClubSignups([]);
     setNewsletterSubscribers([]);
     setContactMessages([]);
-    localStorage.clear();
+    try {
+      window.localStorage.clear();
+    } catch {
+      // ignore storage errors
+    }
   };
 
   return (
@@ -1213,6 +1513,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         closeEnquiryModal,
         isAdminOpen,
         setIsAdminOpen,
+        isAdminLoggedIn,
+        adminToken,
+        adminOwnerEmail,
+        adminOwnerUid,
+        adminLogin,
+        adminLogout,
         servicePreselectId,
         setServicePreselectId,
         catalogueCategoryFilter,

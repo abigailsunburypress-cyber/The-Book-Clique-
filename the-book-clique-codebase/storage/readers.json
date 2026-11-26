@@ -1,0 +1,30 @@
+[
+  {
+    "id": "rdr_1793180921251_f9d2561f",
+    "name": "Marcus Vance",
+    "email": "marcus.vance@example.com",
+    "source": "registration",
+    "registeredAt": "2026-10-28T09:48:41.251Z"
+  },
+  {
+    "id": "rdr_1793357737932_f5b10475",
+    "name": "Test Reader",
+    "email": "testreader@example.com",
+    "source": "purchase",
+    "registeredAt": "2026-10-30T10:55:37.932Z"
+  },
+  {
+    "id": "rdr_1793357745700_10d30077",
+    "name": "Test Reader 2",
+    "email": "reader2@example.com",
+    "source": "purchase",
+    "registeredAt": "2026-10-30T10:55:45.700Z"
+  },
+  {
+    "id": "rdr_1793789438422_aabfdf7a",
+    "name": "Jane Doe",
+    "email": "jane.doe@example.com",
+    "source": "registration",
+    "registeredAt": "2026-11-04T10:50:38.422Z"
+  }
+]

@@ -1,7 +1,3 @@
-import crenshawThumb from '../assets/images/crenshaw_trailer_frame_1793352673047.jpg';
-import vacancyThumb from '../assets/images/vacancy_trailer_frame_1793352689262.jpg';
-import girlsThumb from '../assets/images/girls_storm_shadow_frame_1793352708260.jpg';
-
 export interface TrailerScene {
   time: string;
   title: string;
@@ -55,7 +51,7 @@ export const FEATURED_BOOK_TRAILERS: BookTrailerWork[] = [
     durationFormatted: '1:38',
     aspectRatio: '16:9 Widescreen HD',
     formatDescription: '2D Narrative Character Animation & Kinetic Typography',
-    thumbnail: crenshawThumb,
+    thumbnail: '/images/crenshaw-trailer-frame.jpg',
     videoSrc: '/assets/aistudio/Crenshaw_by_Katherine_Applegate_226a70c5.mp4',
     youtubeId: 'tmYB-TZvxxg',
     embedUrl: 'https://www.youtube-nocookie.com/embed/tmYB-TZvxxg',
@@ -140,7 +136,7 @@ export const FEATURED_BOOK_TRAILERS: BookTrailerWork[] = [
     durationFormatted: '0:43',
     aspectRatio: '16:9 Widescreen',
     formatDescription: 'Cinematic Live-Action Location Grading & Spooky Motion Graphics',
-    thumbnail: vacancyThumb,
+    thumbnail: '/images/vacancy-trailer-frame.jpg',
     videoSrc: '/assets/aistudio/Vacancy___Official_Book_Trailer_33627e6a.mp4',
     youtubeId: 'XRP0qZOvjzs',
     embedUrl: 'https://www.youtube-nocookie.com/embed/XRP0qZOvjzs',
@@ -214,7 +210,7 @@ export const FEATURED_BOOK_TRAILERS: BookTrailerWork[] = [
     durationFormatted: '1:20',
     aspectRatio: '2.39:1 CinemaScope',
     formatDescription: 'Epic Illustrated Graphic Motion, Dramatic Voice Acting & Orchestral Trailer',
-    thumbnail: girlsThumb,
+    thumbnail: '/images/girls-storm-shadow-frame.jpg',
     videoSrc: '/assets/aistudio/Girls_of_Storm_and_Shadow_Book_Trailer_082dbbdb.mp4',
     youtubeId: 'LxlP_NarFeM',
     embedUrl: 'https://www.youtube-nocookie.com/embed/LxlP_NarFeM',

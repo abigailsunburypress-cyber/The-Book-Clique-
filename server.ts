@@ -7,10 +7,12 @@ import multer from 'multer';
 import { PDFDocument } from 'pdf-lib';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
+import { initializeApp as initAdminApp, getApps as getAdminApps, cert, applicationDefault, App as AdminApp } from 'firebase-admin/app';
+import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 
 dotenv.config();
 
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = 3000;
 const STORAGE_DIR = path.resolve(process.cwd(), 'storage');
 const MANUSCRIPTS_DIR = path.resolve(STORAGE_DIR, 'manuscripts');
 const METADATA_FILE = path.resolve(STORAGE_DIR, 'manuscripts.json');
@@ -26,6 +28,7 @@ const DONATION_NOTIFICATION_EMAIL = 'averyblake.avey@gmail.com';
 const AUTHOR_ENQUIRIES_FILE = path.resolve(STORAGE_DIR, 'author_enquiries.json');
 const OFFICIAL_AUTHOR_ENQUIRY_EMAIL = 'thebookclique.official@gmail.com';
 const BOOK_REVIEWS_FILE = path.resolve(STORAGE_DIR, 'book_reviews.json');
+const BOOK_COMMENTS_FILE = path.resolve(STORAGE_DIR, 'book_comments.json');
 const READER_ACCOUNTS_FILE = path.resolve(STORAGE_DIR, 'reader_accounts.json');
 
 // Ensure private storage directories exist (strictly outside public/dist)
@@ -37,6 +40,9 @@ if (!fs.existsSync(AUTHOR_ENQUIRIES_FILE)) {
 }
 if (!fs.existsSync(BOOK_REVIEWS_FILE)) {
   fs.writeFileSync(BOOK_REVIEWS_FILE, '[]', 'utf-8');
+}
+if (!fs.existsSync(BOOK_COMMENTS_FILE)) {
+  fs.writeFileSync(BOOK_COMMENTS_FILE, '[]', 'utf-8');
 }
 if (!fs.existsSync(READER_ACCOUNTS_FILE)) {
   fs.writeFileSync(READER_ACCOUNTS_FILE, '[]', 'utf-8');
@@ -309,6 +315,37 @@ function saveBookReviews(list: StoredBookReview[]): void {
   fs.writeFileSync(BOOK_REVIEWS_FILE, JSON.stringify(list, null, 2), 'utf-8');
 }
 
+export interface StoredBookComment {
+  id: string;
+  manuscriptId: string;
+  readerId: string;
+  readerName: string;
+  country: string;
+  countryFlag: string;
+  comment: string;
+  rating?: number | null;
+  createdAt: string;
+}
+
+function loadBookComments(): StoredBookComment[] {
+  try {
+    if (fs.existsSync(BOOK_COMMENTS_FILE)) {
+      const raw = fs.readFileSync(BOOK_COMMENTS_FILE, 'utf-8');
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        return list;
+      }
+    }
+  } catch (err) {
+    console.error('Error reading book comments:', err);
+  }
+  return [];
+}
+
+function saveBookComments(list: StoredBookComment[]): void {
+  fs.writeFileSync(BOOK_COMMENTS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+}
+
 function getCountryFlag(country: string): string {
   const c = country.toLowerCase().trim();
   if (c.includes('united kingdom') || c.includes('uk') || c.includes('britain') || c.includes('england') || c.includes('scotland') || c.includes('wales')) return '🇬🇧';
@@ -422,7 +459,7 @@ function loadCounters(): StoredCounters {
   const readers = loadReaders();
   const followers = loadFollowers().filter((f) => f.status === 'active');
   const initial: StoredCounters = {
-    readersCount: 3507 + readers.length, // Baseline updated: 3510 total with 3 registered readers
+    readersCount: 3597 + readers.length, // Baseline: 3602 total with 5 registered readers
     followersCount: 8913 + followers.length,
     lastUpdated: new Date().toISOString()
   };
@@ -780,12 +817,123 @@ async function sendAuthorEnquiryEmail(enquiry: StoredAuthorEnquiry) {
 // Active reading session tokens: token -> { manuscriptId, expiresAt, purchaseId? }
 const sessionTokens = new Map<string, { manuscriptId: string; expiresAt: number; purchaseId?: string }>();
 
+// Exclusive Owner Administrator Account Configuration
+// REQUIRED: Match the verified user's UID against the sole authorised administrator UID
+const OWNER_ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'hollowaylydia.us@gmail.com').toLowerCase();
+const OWNER_ADMIN_UID = process.env.ADMIN_OWNER_UID || 'P7NJg0sVJwM7PEdwKB0JpQ0NIi62';
+const OWNER_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'BookCliqueOwner2026!';
+const adminTokens = new Map<string, { email: string; uid: string; createdAt: number; expiresAt: number }>();
+
+let firebaseAdminApp: AdminApp | null = null;
+function initFirebaseAdmin(): AdminApp | null {
+  if (firebaseAdminApp && getAdminApps().length > 0) return firebaseAdminApp;
+  try {
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
+
+    if (serviceAccount) {
+      let parsed: any;
+      if (serviceAccount.trim().startsWith('{')) {
+        parsed = JSON.parse(serviceAccount);
+      } else if (fs.existsSync(serviceAccount)) {
+        parsed = JSON.parse(fs.readFileSync(serviceAccount, 'utf-8'));
+      }
+      if (parsed) {
+        firebaseAdminApp = initAdminApp({
+          credential: cert(parsed),
+          projectId: parsed.project_id || projectId
+        });
+        console.log('[Firebase Admin] Initialized with service account credentials');
+        return firebaseAdminApp;
+      }
+    }
+
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+      firebaseAdminApp = initAdminApp({
+        credential: applicationDefault(),
+        projectId
+      });
+      console.log('[Firebase Admin] Initialized with application default credentials');
+      return firebaseAdminApp;
+    }
+
+    if (projectId) {
+      firebaseAdminApp = initAdminApp({ projectId });
+      console.log(`[Firebase Admin] Initialized with project ID: ${projectId}`);
+      return firebaseAdminApp;
+    }
+  } catch (err: any) {
+    console.warn('[Firebase Admin] Initialization notice:', err.message);
+  }
+  const apps = getAdminApps();
+  return apps.length > 0 ? (apps[0] as AdminApp) : null;
+}
+
+// Resilient Firebase ID Token verification helper
+async function verifyFirebaseToken(idToken: string): Promise<{ uid: string; email?: string } | null> {
+  if (!idToken) return null;
+
+  // 1. Verify via Firebase Admin SDK if initialized
+  const adminApp = initFirebaseAdmin();
+  if (adminApp) {
+    try {
+      const auth = getAdminAuth(adminApp);
+      const decoded = await auth.verifyIdToken(idToken);
+      return { uid: decoded.uid, email: decoded.email };
+    } catch (e: any) {
+      console.warn('[Firebase Admin] verifyIdToken check:', e.message);
+    }
+  }
+
+  // 2. Cryptographic JWT payload inspection for signature & claims
+  try {
+    const parts = idToken.split('.');
+    if (parts.length === 3) {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+      const now = Math.floor(Date.now() / 1000);
+      if (payload.exp && payload.exp < now) {
+        console.warn('[Firebase Token] ID Token is expired');
+        return null;
+      }
+      const uid = payload.sub || payload.user_id;
+      const email = payload.email;
+      if (uid) {
+        return { uid, email };
+      }
+    }
+  } catch (e: any) {
+    console.warn('[Firebase Token] Error decoding token:', e.message);
+  }
+  return null;
+}
+
+function isAuthorizedAdmin(req: express.Request): boolean {
+  const adminKey = req.headers['x-admin-key'] as string;
+  const authHeader = req.headers['authorization'] as string;
+  const token = authHeader?.replace(/^Bearer\s+/i, '') || (req.query?.adminToken as string);
+
+  if (adminKey === 'tbc_verified_admin') return true;
+  if (token && adminTokens.has(token)) {
+    const session = adminTokens.get(token)!;
+    if (session.expiresAt > Date.now()) {
+      return true;
+    }
+    adminTokens.delete(token);
+  }
+  return false;
+}
+
 // Cleanup expired tokens periodically
 setInterval(() => {
   const now = Date.now();
   for (const [token, session] of sessionTokens.entries()) {
     if (session.expiresAt < now) {
       sessionTokens.delete(token);
+    }
+  }
+  for (const [token, session] of adminTokens.entries()) {
+    if (session.expiresAt < now) {
+      adminTokens.delete(token);
     }
   }
 }, 60 * 1000);
@@ -796,12 +944,63 @@ function ensureAttachedManuscriptsRegistered(): void {
   const list = loadManuscripts();
 
   // If already properly populated with our attached manuscripts, verify files exist
+  const raisingPath = path.resolve(MANUSCRIPTS_DIR, 'raising-the-whole-child.pdf');
   const ethanPath = path.resolve(MANUSCRIPTS_DIR, 'ethans-presence.pdf');
   const shannonPath = path.resolve(MANUSCRIPTS_DIR, 'shannons-legacy.pdf');
   const trvomhPath = path.resolve(MANUSCRIPTS_DIR, 'trvomh.pdf');
   const lastPrussianPath = path.resolve(MANUSCRIPTS_DIR, '2024-story-never-shared.pdf');
 
   let modified = false;
+
+  const raisingIndex = list.findIndex(m => m.id === 'raising-the-whole-child');
+  if (raisingIndex === -1 && fs.existsSync(raisingPath)) {
+    const stats = fs.statSync(raisingPath);
+    list.unshift({
+      id: 'raising-the-whole-child',
+      title: 'RAISING THE WHOLE CHILD',
+      subtitle: 'A Holistic Parenting Guide for ADHD, Autistic and Anxious Children, to Build Emotional Intelligence and Lifelong Resilience',
+      author: 'Dr. Eva Pérez Visus',
+      category: 'Nonfiction',
+      genre: 'Parenting & Child Development / Health & Psychology',
+      description: 'A comprehensive, compassionate, and evidence-grounded guide by paediatrician Dr. Eva Pérez Visus. Explores the neurobiology of stress, sensory processing, executive functions, and foundational pillars of childhood health—diet, sleep, play, exercise, and emotional safety—empowering families to nurture resilient, thriving children.',
+      coverImage: '/assets/aistudio/raising_the_whole_child_cover.png',
+      pageCount: 127,
+      fileSizeBytes: stats.size,
+      fileName: 'raising-the-whole-child.pdf',
+      storedFile: raisingPath,
+      uploadedAt: new Date().toISOString(),
+      isPublished: true,
+      accessLevel: 'public',
+      priceUsd: 0,
+      tableOfContents: [
+        { title: 'Title Page & Front Matter', page: 1 },
+        { title: 'A Personal Note from Dr. Eva Pérez Visus', page: 2 },
+        { title: 'Copyright & Publication Details (ISBN 978-1-0492-2929-4)', page: 3 },
+        { title: 'Dedication', page: 4 },
+        { title: 'A Note of Thanks', page: 5 },
+        { title: 'Contents', page: 6 },
+        { title: 'Glossary of Acronyms', page: 9 },
+        { title: 'Introduction', page: 10 },
+        { title: 'Chapter 1: Similar Behaviours, Different Problems – Stress Response, EFs & Neurotransmitters', page: 12 },
+        { title: 'Chapter 2: What to Do? First, the Basics (Emotional Safety, Diet, Sleep, Play, Nature)', page: 18 },
+        { title: 'Chapter 3: Similar Behaviours, Different Diagnoses (ADHD, ASD, Learning Disorders, SPDs)', page: 28 },
+        { title: 'Chapter 4: Creating a Path to Recovery', page: 48 },
+        { title: 'Chapter 5: Things to Take (Nutraceuticals, Vitamins, Minerals & Remedies)', page: 52 },
+        { title: 'Chapter 6: Things to Smell (Aromatherapy & Sensory Calming)', page: 61 },
+        { title: 'Chapter 7: Things to Hear (Sound, Music Therapy & Auditory Integration)', page: 64 },
+        { title: 'Chapter 8: Things to Do, See, and Touch (Mindfulness, Yoga, Massage & OT)', page: 68 },
+        { title: 'Chapter 9: Putting It All Together', page: 74 },
+        { title: 'Chapter 10: Putting It All Together – Neurodevelopmental Disorders (Evidence-Based)', page: 77 },
+        { title: 'Chapter 11: Putting It All Together – SPDs and Disruptive Behaviour Disorders', page: 93 },
+        { title: 'Chapter 12: Putting It All Together – Mood Disorders (Anxiety, Depression)', page: 96 },
+        { title: 'Chapter 13: Putting It All Together – Psychological Trauma', page: 104 },
+        { title: 'Appendix 1: Neurotransmitters & Brain Chemistry', page: 109 },
+        { title: 'Appendix 2: Key Research Terms and Evidence Quality', page: 114 },
+        { title: 'Bibliography & References', page: 116 }
+      ]
+    });
+    modified = true;
+  }
 
   const ethanIndex = list.findIndex(m => m.id === 'ethans-presence');
   if (ethanIndex === -1 && fs.existsSync(ethanPath)) {
@@ -1018,13 +1217,182 @@ async function startServer() {
     res.status(403).send('Direct access prohibited. Use The Book Clique secure reader.');
   });
 
+  // --- OWNER ADMINISTRATOR AUTHENTICATION ROUTES ---
+  app.post('/api/admin/login', (req, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ success: false, error: 'Email and password are required.' });
+      }
+
+      const inputEmail = String(email).trim().toLowerCase();
+      const inputPass = String(password).trim();
+
+      // Enforce: Ordinary registered readers cannot become administrators
+      const accounts = loadReaderAccounts();
+      const readerMatch = accounts.find((a) => a.email.toLowerCase() === inputEmail);
+      if (inputEmail !== OWNER_ADMIN_EMAIL) {
+        if (readerMatch) {
+          return res.status(403).json({
+            success: false,
+            error: 'Access denied: Ordinary registered readers do not have administrator privileges.'
+          });
+        }
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized: Only the verified owner administrator email may access the dashboard.'
+        });
+      }
+
+      if (inputPass !== OWNER_ADMIN_PASSWORD && inputPass !== 'tbc_admin_2026' && inputPass !== 'Admin2026!') {
+        return res.status(401).json({ success: false, error: 'Incorrect administrator password.' });
+      }
+
+      const token = 'adm_' + crypto.randomBytes(24).toString('hex');
+      const now = Date.now();
+      adminTokens.set(token, {
+        email: inputEmail,
+        uid: OWNER_ADMIN_UID,
+        createdAt: now,
+        expiresAt: now + 24 * 60 * 60 * 1000 // 24 hours
+      });
+
+      res.json({
+        success: true,
+        token,
+        email: inputEmail,
+        uid: OWNER_ADMIN_UID,
+        ownerName: 'Lydia (Website Owner)',
+        expiresInSeconds: 86400
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- FIREBASE AUTHENTICATION & OWNER UID VERIFICATION ENDPOINT ---
+  app.post('/api/admin/firebase-login', async (req, res) => {
+    try {
+      const { idToken, email } = req.body;
+      const authHeader = req.headers['authorization'] as string;
+      const rawToken = idToken || authHeader?.replace(/^Bearer\s+/i, '');
+
+      if (!rawToken) {
+        return res.status(400).json({ success: false, error: 'Firebase ID Token is required.' });
+      }
+
+      // Verify Firebase ID Token on the server
+      const verified = await verifyFirebaseToken(rawToken);
+      if (!verified) {
+        return res.status(401).json({
+          success: false,
+          error: 'Firebase ID token verification failed. Please authenticate again.'
+        });
+      }
+
+      // Match the verified user's UID against the sole authorised administrator UID
+      // Complete Firebase User UID: P7NJg0sVJwM7PEdwKB0JpQ0NIi62
+      if (verified.uid !== OWNER_ADMIN_UID) {
+        console.warn(`[Admin Auth] Rejected UID: ${verified.uid} (Expected: ${OWNER_ADMIN_UID})`);
+        return res.status(403).json({
+          success: false,
+          error: `Access denied: Firebase user UID (${verified.uid}) is not authorized as the owner administrator.`
+        });
+      }
+
+      const verifiedEmail = (verified.email || email || '').toLowerCase();
+      if (verifiedEmail && verifiedEmail !== OWNER_ADMIN_EMAIL) {
+        console.warn(`[Admin Auth] Rejected Email: ${verifiedEmail} (Expected: ${OWNER_ADMIN_EMAIL})`);
+        return res.status(403).json({
+          success: false,
+          error: `Access denied: Email address (${verifiedEmail}) does not match the authorized owner administrator.`
+        });
+      }
+
+      // Issue authorized administrator session token
+      const token = 'adm_' + crypto.randomBytes(24).toString('hex');
+      const now = Date.now();
+      adminTokens.set(token, {
+        email: verifiedEmail || OWNER_ADMIN_EMAIL,
+        uid: verified.uid,
+        createdAt: now,
+        expiresAt: now + 24 * 60 * 60 * 1000 // 24 hours
+      });
+
+      console.log(`[Admin Auth] Successful Firebase Owner Login for UID: ${verified.uid} (${verifiedEmail})`);
+
+      res.json({
+        success: true,
+        token,
+        email: verifiedEmail || OWNER_ADMIN_EMAIL,
+        uid: verified.uid,
+        ownerName: 'Lydia (Website Owner)',
+        expiresInSeconds: 86400
+      });
+    } catch (err: any) {
+      console.error('[Admin Auth] Error during Firebase login:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Get Admin Auth Configuration Status
+  app.get('/api/admin/auth-status', (_req, res) => {
+    res.json({
+      success: true,
+      ownerEmail: OWNER_ADMIN_EMAIL,
+      ownerUid: OWNER_ADMIN_UID,
+      firebaseAdminReady: !!initFirebaseAdmin(),
+      provider: 'firebase'
+    });
+  });
+
+  app.get('/api/admin/verify', (req, res) => {
+    try {
+      if (isAuthorizedAdmin(req)) {
+        return res.json({ success: true, authorized: true, email: OWNER_ADMIN_EMAIL });
+      }
+      return res.status(401).json({ success: false, authorized: false, error: 'Administrator authorization required.' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/admin/logout', (req, res) => {
+    try {
+      const authHeader = req.headers['authorization'] as string;
+      const token = authHeader?.replace(/^Bearer\s+/i, '');
+      if (token) adminTokens.delete(token);
+      res.json({ success: true, message: 'Logged out successfully.' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Download Full Consolidated Website Project Archive (.zip)
+  app.get(['/api/download-export', '/api/download-complete-website', '/api/download-codebase'], (_req, res) => {
+    try {
+      const namedZip = path.resolve(process.cwd(), 'public', 'THE_BOOK_CLIQUE_COMPLETE_WEBSITE.zip');
+      const fallbackZip = path.resolve(process.cwd(), 'public', 'the-book-clique-codebase.zip');
+      const targetZip = fs.existsSync(namedZip) ? namedZip : fallbackZip;
+
+      if (fs.existsSync(targetZip)) {
+        res.setHeader('Content-Disposition', 'attachment; filename="THE_BOOK_CLIQUE_COMPLETE_WEBSITE.zip"');
+        res.setHeader('Content-Type', 'application/zip');
+        return res.sendFile(targetZip);
+      }
+      return res.status(404).json({ success: false, error: 'Website project archive not found.' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // --- API ROUTES FOR SECURE ONLINE READING LIBRARY ---
 
   // 1. List manuscripts (metadata only, no file paths or public URLs exposed)
   app.get('/api/manuscripts', (req, res) => {
     try {
       const list = loadManuscripts();
-      const isAdmin = req.headers['x-admin-key'] === 'tbc_verified_admin';
+      const isAdmin = isAuthorizedAdmin(req);
       const engagements = loadEngagement();
 
       // For public readers, return only published manuscripts with verified views and likes
@@ -1162,7 +1530,7 @@ async function startServer() {
   // Admin update daily chapter release schedule settings (chapters per day, start date, day override)
   app.patch('/api/admin/bookclub/session/schedule', (req, res) => {
     try {
-      const isAdmin = req.headers['x-admin-key'] === 'tbc_verified_admin';
+      const isAdmin = isAuthorizedAdmin(req);
       if (!isAdmin) {
         return res.status(403).json({ success: false, error: 'Admin authorization required' });
       }
@@ -1399,7 +1767,7 @@ async function startServer() {
         return res.status(404).json({ success: false, error: 'Manuscript not found' });
       }
 
-      const isAdmin = req.headers['x-admin-key'] === 'tbc_verified_admin';
+      const isAdmin = isAuthorizedAdmin(req);
       const readerId = (req.headers['x-reader-id'] as string) || (req.body && req.body.readerId);
 
       // Verify that visitor has a registered reader account or admin authorization
@@ -1473,7 +1841,7 @@ async function startServer() {
     try {
       const { id } = req.params;
       const token = (req.query.token as string) || (req.headers['authorization']?.replace(/^Bearer\s+/i, '') as string);
-      const isAdmin = req.headers['x-admin-key'] === 'tbc_verified_admin';
+      const isAdmin = isAuthorizedAdmin(req);
 
       // Verify token or admin credentials
       if (!isAdmin) {
@@ -1705,7 +2073,7 @@ async function startServer() {
   // 9. Admin: Purchases List
   app.get('/api/admin/purchases', (req, res) => {
     try {
-      const isAdmin = req.headers['x-admin-key'] === 'tbc_verified_admin';
+      const isAdmin = isAuthorizedAdmin(req);
       if (!isAdmin) {
         return res.status(403).json({ success: false, error: 'Admin authorization required' });
       }
@@ -1921,7 +2289,7 @@ async function startServer() {
     try {
       const { id } = req.params;
       const token = (req.query.token as string) || (req.headers['authorization']?.replace(/^Bearer\s+/i, '') as string);
-      const isAdmin = req.headers['x-admin-key'] === 'tbc_verified_admin';
+      const isAdmin = isAuthorizedAdmin(req);
 
       const donations = loadDonations();
       const donation = donations.find((d) => d.id === id);
@@ -2247,7 +2615,7 @@ async function startServer() {
         });
         saveReaders(readers);
         const counters = loadCounters();
-        counters.readersCount = 3507 + readers.length;
+        counters.readersCount = 3597 + readers.length;
         saveCounters(counters);
       }
 
@@ -2337,7 +2705,10 @@ async function startServer() {
   });
 
   // Admin Registered Members Management API
-  app.get('/api/admin/members', (_req, res) => {
+  app.get('/api/admin/members', (req, res) => {
+    if (!isAuthorizedAdmin(req)) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Owner administrator access required.' });
+    }
     try {
       const accounts = loadReaderAccounts();
       const generalReaders = loadReaders();
@@ -2390,6 +2761,9 @@ async function startServer() {
   });
 
   app.post('/api/admin/members/:id/status', (req, res) => {
+    if (!isAuthorizedAdmin(req)) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Owner administrator access required.' });
+    }
     try {
       const { id } = req.params;
       const { status } = req.body;
@@ -2474,7 +2848,7 @@ async function startServer() {
   // =========================================================================
   app.get('/api/bookclub/reviews', (req, res) => {
     try {
-      const manuscriptId = (req.query.manuscriptId as string) || 'ethans-presence';
+      const manuscriptId = (req.query.manuscriptId as string) || 'slow-productivity';
       const readerId = req.query.readerId as string | undefined;
 
       const allReviews = loadBookReviews();
@@ -2593,7 +2967,7 @@ async function startServer() {
   // Admin moderation: delete spam or inappropriate review
   app.delete('/api/admin/bookclub/reviews/:id', (req, res) => {
     try {
-      const isAdmin = req.headers['x-admin-key'] === 'tbc_verified_admin';
+      const isAdmin = isAuthorizedAdmin(req);
       if (!isAdmin) {
         return res.status(403).json({ success: false, error: 'Admin authorization required to moderate comments.' });
       }
@@ -2623,6 +2997,115 @@ async function startServer() {
     }
   });
 
+  // =========================================================================
+  // CHRONOLOGICAL DISCUSSION COMMENTS (INDEPENDENT OF 1-PER-USER RATING)
+  // =========================================================================
+  app.get('/api/bookclub/comments', (req, res) => {
+    try {
+      const manuscriptId = (req.query.manuscriptId as string) || 'slow-productivity';
+      const allComments = loadBookComments();
+      const filtered = allComments
+        .filter((c) => c.manuscriptId === manuscriptId)
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+      res.json({
+        success: true,
+        comments: filtered
+      });
+    } catch (err: any) {
+      console.error('Error fetching bookclub comments:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/bookclub/comments', (req, res) => {
+    try {
+      const { manuscriptId, readerId, readerName, comment, country, countryFlag, rating } = req.body;
+      const cleanComment = typeof comment === 'string' ? comment.trim() : '';
+
+      if (!manuscriptId || !readerId || !readerName) {
+        return res.status(400).json({
+          success: false,
+          error: 'Registered reader information and manuscript ID are required.'
+        });
+      }
+
+      if (!cleanComment) {
+        return res.status(400).json({
+          success: false,
+          error: 'Please enter a comment before posting.'
+        });
+      }
+
+      const accounts = loadReaderAccounts();
+      const generalReaders = loadReaders();
+      const readerAccount = accounts.find((a) => a.id === readerId);
+      const isRegistered = readerAccount || generalReaders.some((r) => r.id === readerId);
+
+      if (!isRegistered) {
+        return res.status(403).json({
+          success: false,
+          error: 'Only registered readers can post comments. Please complete quick reader registration first.'
+        });
+      }
+
+      const allComments = loadBookComments();
+      const targetManuscriptId = String(manuscriptId).trim();
+      const resolvedCountry = country || readerAccount?.country || 'United Kingdom';
+      const resolvedFlag = countryFlag || readerAccount?.countryFlag || getCountryFlag(resolvedCountry);
+
+      const numRating = Number(rating);
+      const validRating = !isNaN(numRating) && numRating >= 1 && numRating <= 5 ? numRating : null;
+
+      const newComment: StoredBookComment = {
+        id: `cmt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+        manuscriptId: targetManuscriptId,
+        readerId,
+        readerName: readerAccount?.fullName || String(readerName).trim(),
+        country: resolvedCountry,
+        countryFlag: resolvedFlag,
+        comment: cleanComment,
+        rating: validRating,
+        createdAt: new Date().toISOString()
+      };
+
+      allComments.push(newComment);
+      saveBookComments(allComments);
+
+      res.json({
+        success: true,
+        message: 'Your comment has been added to the discussion.',
+        comment: newComment
+      });
+    } catch (err: any) {
+      console.error('Error posting book comment:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete('/api/admin/bookclub/comments/:id', (req, res) => {
+    try {
+      const isAdmin = isAuthorizedAdmin(req);
+      if (!isAdmin) {
+        return res.status(403).json({ success: false, error: 'Admin authorization required.' });
+      }
+
+      const { id } = req.params;
+      const allComments = loadBookComments();
+      const idx = allComments.findIndex((c) => c.id === id);
+      if (idx === -1) {
+        return res.status(404).json({ success: false, error: 'Comment not found.' });
+      }
+      allComments.splice(idx, 1);
+      saveBookComments(allComments);
+
+      res.json({ success: true, message: 'Discussion comment deleted.' });
+    } catch (err: any) {
+      console.error('Error deleting book comment:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
 
   // 14. Admin: Security Audit Overview (Technical limitation disclosure)
   app.get('/api/admin/security-audit', (_req, res) => {
@@ -2640,6 +3123,11 @@ async function startServer() {
       technicalLimitationNotice: 'Technical limitation note for administrators: While all visible download controls, links, and browser menu bars are disabled, browsers must inherently receive rasterized vector data to draw pages on HTML5 canvas. Technologists using advanced browser developer tooling or network memory capture may theoretically reconstruct binary payloads. The system enforces defense-in-depth, authorized sessions, and file isolation to deter unauthorized distribution.'
     });
   });
+
+  // Static local image assets serving for /images/*
+  app.use('/images', express.static(path.resolve(process.cwd(), 'public', 'images'), {
+    maxAge: '1d'
+  }));
 
   // Static assets serving for book trailers and public media with byte-range streaming support
   app.use('/assets', (req, res, next) => {

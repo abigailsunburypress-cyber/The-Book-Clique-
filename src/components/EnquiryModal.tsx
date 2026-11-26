@@ -18,14 +18,21 @@ export const EnquiryModal: React.FC = () => {
   const [selectedService, setSelectedService] = useState('');
   const [selectedPackage, setSelectedPackage] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
-  const [budgetRange, setBudgetRange] = useState('$250 - $500');
+  const [budgetRange, setBudgetRange] = useState('Personalised Quotation (Scope-Based)');
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     if (isEnquiryModalOpen) {
-      setSelectedService(enquiryServicePreselect?.serviceName || services[0]?.name || '');
-      setSelectedPackage(enquiryServicePreselect?.packageName || 'Starter');
+      const preSvc = enquiryServicePreselect?.serviceName || services[0]?.name || '';
+      const prePkg = enquiryServicePreselect?.packageName || 'Starter';
+      setSelectedService(preSvc);
+      setSelectedPackage(prePkg);
+      setBudgetRange(
+        preSvc === 'Holiday Book Club Registration'
+          ? 'Holiday Book Club Offer ($99)'
+          : 'Personalised Quotation (Scope-Based)'
+      );
       setStatus('idle');
       setErrorMsg('');
     }
@@ -195,6 +202,9 @@ export const EnquiryModal: React.FC = () => {
                     onChange={(e) => setSelectedService(e.target.value)}
                     className="w-full px-3.5 py-2 text-xs sm:text-sm bg-[#FFFFFF] border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
                   >
+                    <option value="Holiday Book Club Registration">
+                      Holiday Book Club Registration
+                    </option>
                     {services.map((s) => (
                       <option key={s.id} value={s.name}>
                         {s.name}
@@ -205,7 +215,7 @@ export const EnquiryModal: React.FC = () => {
 
                 <div>
                   <label htmlFor="enq-budget" className="block text-xs font-semibold text-[#2C332F] mb-1">
-                    Estimated Budget Range
+                    Quotation Preference
                   </label>
                   <select
                     id="enq-budget"
@@ -213,11 +223,20 @@ export const EnquiryModal: React.FC = () => {
                     onChange={(e) => setBudgetRange(e.target.value)}
                     className="w-full px-3.5 py-2 text-xs sm:text-sm bg-[#FFFFFF] border border-[#D5CDBD] rounded text-[#1C1E1D] focus:outline-2 focus:outline-[#143826]"
                   >
-                    <option value="Under $250">Under $250</option>
-                    <option value="$250 - $500">$250 - $500</option>
-                    <option value="$500 - $1,000">$500 - $1,000</option>
-                    <option value="$1,000+">$1,000+ (Series / Full Omnichannel)</option>
-                    <option value="Custom Quotation Required">Custom Quotation Required</option>
+                    {selectedService === 'Holiday Book Club Registration' && (
+                      <option value="Holiday Book Club Offer ($99)">
+                        Holiday Book Club Offer ($99)
+                      </option>
+                    )}
+                    <option value="Personalised Quotation (Scope-Based)">
+                      Personalised Quotation (Scope-Based)
+                    </option>
+                    <option value="Custom Campaign / Multi-Title Scope">
+                      Custom Campaign / Multi-Title Scope
+                    </option>
+                    <option value="Book Club Registration Enquiry">
+                      Book Club Registration Enquiry
+                    </option>
                   </select>
                 </div>
               </div>

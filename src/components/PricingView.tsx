@@ -17,19 +17,19 @@ export const PricingView: React.FC = () => {
         {/* Header */}
         <div className="text-center max-w-3xl mx-auto mb-12">
           <span className="text-xs font-semibold uppercase tracking-wider text-[#8C6D23]">
-            Transparent Investment
+            Personalised Quotations
           </span>
           <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-semibold text-[#143826] mt-1 tracking-tight">
-            Service Packages & Pricing
+            Service Packages &amp; Quotations
           </h1>
           <p className="text-sm text-[#525B55] mt-2.5 leading-relaxed">
-            Every author project deserves crystal-clear terms, defined deliverables, and reliable timelines. Compare our tiered packages below or request a custom quote tailored to your manuscript.
+            Every author project deserves crystal-clear terms, defined deliverables, and reliable timelines. Compare our tiered packages below and contact our team for a quotation tailored to your book.
           </p>
 
-          {/* Pricing Placeholder Advisory */}
-          <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 bg-[#F4EDE0] border border-[#E2D5BE] rounded text-xs text-[#6B5724]">
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>Note: Prices shown are structured demonstration placeholders editable by site administrators.</span>
+          {/* Quotation Advisory */}
+          <div className="mt-4 inline-flex items-center gap-2 px-4 py-1.5 bg-[#F4EDE0] border border-[#E2D5BE] rounded text-xs text-[#6B5724]">
+            <HelpCircle className="w-3.5 h-3.5 shrink-0" />
+            <span>Pricing is determined by the scope and requirements of each project. Contact our team for a personalised quotation.</span>
           </div>
 
           {/* Filter dropdown */}
@@ -94,13 +94,10 @@ export const PricingView: React.FC = () => {
                         {pkg.name}
                       </h3>
 
-                      <div className="mt-2 mb-3">
-                        <span className="font-serif text-2xl font-bold text-[#143826] tabular-nums">
+                      <div className="mt-2.5 mb-4 p-3 rounded bg-[#F4EDE0]/70 border border-[#E2D5BE]">
+                        <p className="text-xs font-medium text-[#6B5724] leading-relaxed">
                           {pkg.price}
-                        </span>
-                        {!pkg.isCustomQuote && (
-                          <span className="text-xs text-[#6B756F] ml-1">/ project</span>
-                        )}
+                        </p>
                       </div>
 
                       <p className="text-xs text-[#556059] leading-relaxed mb-4">
@@ -142,7 +139,7 @@ export const PricingView: React.FC = () => {
                             : 'bg-[#EAE3D4] text-[#143826] hover:bg-[#DDD5C4]'
                         }`}
                       >
-                        {pkg.isCustomQuote ? 'Request Custom Quote' : 'Enquire & Book Package'}
+                        Request Personalised Quotation
                       </button>
                     </div>
 

@@ -1,20 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   Users,
   Globe,
-  Sparkles,
   CheckCircle2,
   AlertCircle,
   X,
   Mail,
   ShieldCheck,
   ArrowRight,
-  TrendingUp,
   HeartHandshake,
   UserPlus
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+
+const COUNT_DURATION_MS = 1750;
 
 export const CommunityCounterSection: React.FC = () => {
   const {
@@ -24,6 +24,93 @@ export const CommunityCounterSection: React.FC = () => {
     unsubscribeCommunity,
     setActiveView
   } = useApp();
+
+  const cardsGridRef = useRef<HTMLDivElement | null>(null);
+  const hasAnimatedInitialRef = useRef(false);
+  const [hasEnteredView, setHasEnteredView] = useState(false);
+  const [isCounting, setIsCounting] = useState(false);
+  const [displayReaders, setDisplayReaders] = useState(0);
+  const [displayFollowers, setDisplayFollowers] = useState(0);
+
+  // Observe when statistic cards become visible on screen
+  useEffect(() => {
+    const node = cardsGridRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      setHasEnteredView(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setHasEnteredView(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.2 }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  // Fast, smooth count-up from 0 to exact target values (1.75s ease-out cubic)
+  useEffect(() => {
+    if (!hasEnteredView) return;
+
+    const targetReaders = communityStats.totalReaders;
+    const targetFollowers = communityStats.totalFollowers;
+
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    if (prefersReducedMotion) {
+      hasAnimatedInitialRef.current = true;
+      setDisplayReaders(targetReaders);
+      setDisplayFollowers(targetFollowers);
+      setIsCounting(false);
+      return;
+    }
+
+    // If initial count-up already completed and backend updates later, snap cleanly to new verified total
+    if (hasAnimatedInitialRef.current) {
+      setDisplayReaders(targetReaders);
+      setDisplayFollowers(targetFollowers);
+      return;
+    }
+
+    let rafId = 0;
+    let startTime: number | null = null;
+    setIsCounting(true);
+
+    const step = (timestamp: number) => {
+      if (startTime === null) {
+        startTime = timestamp;
+      }
+      const elapsed = timestamp - startTime;
+      const progress = Math.min(elapsed / COUNT_DURATION_MS, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      setDisplayReaders(Math.round(eased * targetReaders));
+      setDisplayFollowers(Math.round(eased * targetFollowers));
+
+      if (progress < 1) {
+        rafId = window.requestAnimationFrame(step);
+      } else {
+        hasAnimatedInitialRef.current = true;
+        setDisplayReaders(targetReaders);
+        setDisplayFollowers(targetFollowers);
+        setIsCounting(false);
+      }
+    };
+
+    rafId = window.requestAnimationFrame(step);
+
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
+  }, [hasEnteredView, communityStats.totalReaders, communityStats.totalFollowers]);
 
   // Modal states
   const [isFollowModalOpen, setIsFollowModalOpen] = useState(false);
@@ -209,17 +296,36 @@ export const CommunityCounterSection: React.FC = () => {
         </p>
 
         {/* Counters Grid: Side by side on desktop, stacked neatly on mobile */}
-        <div className="mt-12 sm:mt-16 grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-10 max-w-4xl mx-auto">
+        <div
+          ref={cardsGridRef}
+          className="mt-12 sm:mt-16 grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-10 max-w-4xl mx-auto"
+        >
           
           {/* COUNTER 1: READERS */}
-          <div className="bg-[#19442F]/90 border border-[#C5A059]/35 rounded-sm p-8 sm:p-10 backdrop-blur-sm shadow-xl flex flex-col justify-between text-left relative overflow-hidden group hover:border-[#C5A059] transition-all">
-            <div className="absolute -right-8 -bottom-8 opacity-10 text-[#C5A059] pointer-events-none group-hover:scale-110 transition-transform">
+          <div
+            className={`bg-[#19442F]/90 rounded-sm p-8 sm:p-10 backdrop-blur-sm flex flex-col justify-between text-left relative overflow-hidden group transition-all duration-700 ease-out hover:-translate-y-1 hover:border-[#E8C56E] hover:shadow-[0_14px_34px_rgba(8,26,17,0.55),0_0_20px_rgba(197,160,89,0.2)] ${
+              hasEnteredView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
+            } ${
+              isCounting
+                ? 'border border-[#E8C56E] shadow-[0_0_28px_rgba(197,160,89,0.28)]'
+                : 'border border-[#C5A059]/35 shadow-xl'
+            }`}
+          >
+            {/* Subtle Gold Top Highlight During Counting */}
+            <div
+              aria-hidden="true"
+              className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-[#E8C56E] to-transparent transition-opacity duration-500 ${
+                isCounting ? 'opacity-100' : 'opacity-0 group-hover:opacity-70'
+              }`}
+            />
+
+            <div className="counter-watermark-drift absolute -right-8 -bottom-8 text-[#C5A059] pointer-events-none group-hover:scale-110 transition-transform duration-300">
               <BookOpen className="w-44 h-44" />
             </div>
 
             <div>
               <div className="flex items-center justify-between gap-4 mb-4">
-                <div className="w-12 h-12 rounded bg-[#C5A059]/20 text-[#C5A059] flex items-center justify-center border border-[#C5A059]/40">
+                <div className="counter-icon-float w-12 h-12 rounded bg-[#C5A059]/20 text-[#C5A059] flex items-center justify-center border border-[#C5A059]/40 group-hover:bg-[#C5A059]/30 group-hover:border-[#E8C56E] transition-colors">
                   <BookOpen className="w-6 h-6" />
                 </div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-[#C5A059] bg-[#143826] px-2.5 py-1 rounded border border-[#C5A059]/30">
@@ -233,8 +339,8 @@ export const CommunityCounterSection: React.FC = () => {
 
               {/* Large, Clear Non-Rounded Number */}
               <div className="mt-2 flex items-baseline gap-2">
-                <span className="font-serif text-5xl sm:text-6xl font-bold tracking-tight text-[#FAF6F0]">
-                  {formatNumber(communityStats.totalReaders)}
+                <span className="font-serif text-5xl sm:text-6xl font-bold tracking-tight text-[#FAF6F0] tabular-nums">
+                  {formatNumber(displayReaders)}
                 </span>
                 <span className="text-xs text-[#C5A059] font-sans font-semibold">
                   Readers
@@ -270,14 +376,34 @@ export const CommunityCounterSection: React.FC = () => {
           </div>
 
           {/* COUNTER 2: FOLLOWERS */}
-          <div className="bg-[#19442F]/90 border border-[#C5A059]/35 rounded-sm p-8 sm:p-10 backdrop-blur-sm shadow-xl flex flex-col justify-between text-left relative overflow-hidden group hover:border-[#C5A059] transition-all">
-            <div className="absolute -right-8 -bottom-8 opacity-10 text-[#C5A059] pointer-events-none group-hover:scale-110 transition-transform">
+          <div
+            className={`bg-[#19442F]/90 rounded-sm p-8 sm:p-10 backdrop-blur-sm flex flex-col justify-between text-left relative overflow-hidden group transition-all duration-700 ease-out hover:-translate-y-1 hover:border-[#E8C56E] hover:shadow-[0_14px_34px_rgba(8,26,17,0.55),0_0_20px_rgba(197,160,89,0.2)] ${
+              hasEnteredView
+                ? isCounting
+                  ? 'opacity-100 translate-y-0 delay-100'
+                  : 'opacity-100 translate-y-0'
+                : 'opacity-0 translate-y-5'
+            } ${
+              isCounting
+                ? 'border border-[#E8C56E] shadow-[0_0_28px_rgba(197,160,89,0.28)]'
+                : 'border border-[#C5A059]/35 shadow-xl'
+            }`}
+          >
+            {/* Subtle Gold Top Highlight During Counting */}
+            <div
+              aria-hidden="true"
+              className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-[#E8C56E] to-transparent transition-opacity duration-500 ${
+                isCounting ? 'opacity-100' : 'opacity-0 group-hover:opacity-70'
+              }`}
+            />
+
+            <div className="counter-watermark-drift absolute -right-8 -bottom-8 text-[#C5A059] pointer-events-none group-hover:scale-110 transition-transform duration-300">
               <Users className="w-44 h-44" />
             </div>
 
             <div>
               <div className="flex items-center justify-between gap-4 mb-4">
-                <div className="w-12 h-12 rounded bg-[#C5A059]/20 text-[#C5A059] flex items-center justify-center border border-[#C5A059]/40">
+                <div className="counter-icon-float w-12 h-12 rounded bg-[#C5A059]/20 text-[#C5A059] flex items-center justify-center border border-[#C5A059]/40 group-hover:bg-[#C5A059]/30 group-hover:border-[#E8C56E] transition-colors">
                   <Users className="w-6 h-6" />
                 </div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-[#C5A059] bg-[#143826] px-2.5 py-1 rounded border border-[#C5A059]/30">
@@ -291,8 +417,8 @@ export const CommunityCounterSection: React.FC = () => {
 
               {/* Large, Clear Non-Rounded Number */}
               <div className="mt-2 flex items-baseline gap-2">
-                <span className="font-serif text-5xl sm:text-6xl font-bold tracking-tight text-[#FAF6F0]">
-                  {formatNumber(communityStats.totalFollowers)}
+                <span className="font-serif text-5xl sm:text-6xl font-bold tracking-tight text-[#FAF6F0] tabular-nums">
+                  {formatNumber(displayFollowers)}
                 </span>
                 <span className="text-xs text-[#C5A059] font-sans font-semibold">
                   Followers

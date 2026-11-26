@@ -44,27 +44,44 @@ export const ButterflyEntrance: React.FC = () => {
   useEffect(() => {
     // 1. Respect reduced-motion accessibility preference
     if (typeof window !== 'undefined') {
-      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (prefersReducedMotion) {
-        return;
-      }
+      try {
+        const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        if (prefersReducedMotion) {
+          return;
+        }
 
-      // 2. Play once per browsing session
-      const alreadyShown = sessionStorage.getItem('tbc_butterfly_entrance_shown');
-      if (alreadyShown === 'true') {
-        return;
-      }
+        // 2. Play once per browsing session
+        let alreadyShown: string | null = null;
+        try {
+          alreadyShown = sessionStorage.getItem('tbc_butterfly_entrance_shown');
+        } catch {
+          alreadyShown = null;
+        }
+        if (alreadyShown === 'true') {
+          return;
+        }
 
-      // Mark as shown for this browsing session
-      sessionStorage.setItem('tbc_butterfly_entrance_shown', 'true');
-      setIsVisible(true);
+        // Mark as shown for this browsing session
+        try {
+          sessionStorage.setItem('tbc_butterfly_entrance_shown', 'true');
+        } catch {
+          // Ignore storage restrictions in embedded previews
+        }
+        setIsVisible(true);
+      } catch {
+        // Ignore matchMedia / storage errors
+      }
     }
   }, []);
 
   // Allow manual replay through custom window event if ever needed for demonstration
   useEffect(() => {
     const handleReplay = () => {
-      sessionStorage.removeItem('tbc_butterfly_entrance_shown');
+      try {
+        sessionStorage.removeItem('tbc_butterfly_entrance_shown');
+      } catch {
+        // Ignore storage errors
+      }
       setIsVisible(true);
     };
     window.addEventListener('replay-butterfly-entrance', handleReplay);

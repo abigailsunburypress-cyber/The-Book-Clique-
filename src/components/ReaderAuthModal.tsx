@@ -189,7 +189,7 @@ export const ReaderAuthModal: React.FC<ReaderAuthModalProps> = ({
           </h3>
 
           <p className="mt-1.5 text-xs text-[#D1DDD6] leading-relaxed pr-8">
-            Complete this quick registration for automatic approval and immediate access to read the active Book Club manuscript and available chapters.
+            Complete this quick registration for automatic approval and immediate access to Book Club ratings and community discussions.
           </p>
         </div>
 

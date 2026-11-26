@@ -1,5 +1,5 @@
 import React from 'react';
-import { Target, Compass, Heart, BookOpen, Sparkles, ArrowRight, Globe, Quote, ShieldCheck, CheckCircle2, FileText, Users, Mail } from 'lucide-react';
+import { Target, Compass, Heart, BookOpen, Sparkles, Globe, Quote, Users } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 export const AboutUsView: React.FC = () => {
@@ -89,17 +89,17 @@ export const AboutUsView: React.FC = () => {
 
               {/* Biography Paragraph 2 */}
               <p className="text-sm sm:text-base text-[#3E4642] leading-relaxed">
-                Susan is happily married and a proud mother of two children. Beyond her passion for literature, she has dedicated herself to helping children around the world, particularly across the African continent, with a commitment to supporting their growth, learning, and opportunities for a brighter future.
+                Susan is happily married and a proud mother of two children. Her humanitarian commitment extends worldwide, with a particular focus on supporting children and helping vulnerable communities access care, opportunity, and a better quality of life.
               </p>
 
               {/* Humanitarian Dedication Spotlight Box */}
               <div className="p-4 sm:p-5 bg-[#FAF7F2] border-l-4 border-[#8C6D23] rounded-r border-t border-r border-b border-[#EAE4D8] text-xs sm:text-sm text-[#3E4642] space-y-2 shadow-2xs">
                 <div className="flex items-center gap-2 font-semibold text-[#143826]">
                   <Globe className="w-4 h-4 text-[#8C6D23] shrink-0" />
-                  <span>Global Outreach &amp; Dedication to Children</span>
+                  <span>Global Outreach &amp; Humanitarian Commitment</span>
                 </div>
                 <p className="leading-relaxed text-[#525B55] text-xs sm:text-sm">
-                  A foundational pillar of Susan’s personal mission is providing children around the world—especially across communities in Africa—with essential learning resources, nurturing environments, and pathways toward educational growth and lasting opportunity.
+                  Her humanitarian commitment extends worldwide, with a particular focus on supporting children and helping vulnerable communities access care, opportunity, and a better quality of life.
                 </p>
               </div>
 
@@ -212,24 +212,6 @@ export const AboutUsView: React.FC = () => {
                     <p className="text-xs sm:text-[13px] text-[#3D4741] leading-relaxed font-normal">
                       {member.bio}
                     </p>
-
-                    {/* Contact Email Address with Mail Icon */}
-                    {member.email && (
-                      <div className="mt-4 pt-3.5 border-t border-[#F0EBE1]">
-                        <a
-                          href={`mailto:${member.email}`}
-                          className="inline-flex items-center gap-2 text-xs font-medium text-[#143826] hover:text-[#8C6D23] transition-colors group/mail break-all"
-                          title={`Send an email to ${member.name} (${member.email})`}
-                        >
-                          <span className="w-6 h-6 rounded-full bg-[#FAF7F2] border border-[#E6DFD5] group-hover/mail:border-[#C5A059] flex items-center justify-center shrink-0 transition-colors">
-                            <Mail className="w-3.5 h-3.5 text-[#8C6D23]" />
-                          </span>
-                          <span className="underline decoration-[#C5A059]/40 group-hover/mail:decoration-[#8C6D23] underline-offset-2">
-                            {member.email}
-                          </span>
-                        </a>
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -248,138 +230,7 @@ export const AboutUsView: React.FC = () => {
         </section>
 
         {/* ============================================================== */}
-        {/* 3. OUR AUTHORISED PAYMENT AGENT SUBSECTION */}
-        {/* Positioned directly after founder info and team introduction */}
-        {/* ============================================================== */}
-        <section
-          id="authorised-payment-agent"
-          aria-labelledby="payment-agent-heading"
-          className="bg-[#FFFFFF] border border-[#E6DFD5] rounded shadow-xs p-6 sm:p-10 lg:p-12 mb-16 relative overflow-hidden"
-        >
-          {/* Subtle decorative top bar */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#143826] via-[#C5A059] to-[#143826]" />
-
-          {/* Subsection Header */}
-          <div className="border-b border-[#F0EAE1] pb-6 mb-8 text-left">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#8C6D23] mb-1">
-              <ShieldCheck className="w-4 h-4 text-[#8C6D23]" />
-              <span>Official Author Representation</span>
-            </div>
-            <h2 id="payment-agent-heading" className="font-serif text-3xl sm:text-4xl lg:text-5xl font-semibold text-[#143826] tracking-tight">
-              Our Authorised Payment Agent
-            </h2>
-            <p className="text-xs sm:text-sm text-[#525B55] mt-1.5">
-              Official payment coordination and verification details for authors partnering with The Book Clique.
-            </p>
-          </div>
-
-          {/* Agent Profile Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
-            
-            {/* Left Column: Official Photograph (unmodified, original aspect ratio) */}
-            <div className="lg:col-span-5 flex flex-col items-center">
-              <div className="w-full max-w-[340px] bg-[#FAF8F5] rounded border-2 border-[#DFD7CA] overflow-hidden shadow-md p-2">
-                <img
-                  src="/assets/aistudio/homme_noir_en_veste_1813c940.jfif"
-                  alt="Mr. Abdul Wasiu Yusuf, Authorised Payment Agent for The Book Clique"
-                  className="w-full h-auto object-contain rounded-xs"
-                />
-              </div>
-
-              {/* Official Credential Note */}
-              <div className="w-full max-w-[340px] mt-4 p-4 bg-[#FAF8F5] border border-[#E6DFD5] rounded text-left shadow-2xs space-y-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#143826]">
-                  <ShieldCheck className="w-4 h-4 text-[#16A34A] shrink-0" />
-                  <span>Designated Payment Representative</span>
-                </div>
-                <p className="text-xs text-[#525B55] leading-relaxed">
-                  Mr. Abdul Wasiu Yusuf is the single designated Authorised Payment Agent for The Book Clique.
-                </p>
-              </div>
-            </div>
-
-            {/* Right Column: Agent Information, Profile Description, Verification & Arrangement */}
-            <div className="lg:col-span-7 space-y-6 text-left">
-              <div>
-                <h3 className="font-serif text-3xl sm:text-4xl font-bold text-[#143826] tracking-tight">
-                  Mr. Abdul Wasiu Yusuf
-                </h3>
-                <p className="text-base sm:text-lg font-semibold text-[#8C6D23] mt-1">
-                  Authorised Payment Agent
-                </p>
-                <p className="text-xs sm:text-sm text-[#636E67] font-medium mt-0.5">
-                  Originally from Nigeria and now based in the United States
-                </p>
-              </div>
-
-              {/* Profile Description */}
-              <div className="space-y-4 text-sm sm:text-base text-[#3E4642] leading-relaxed">
-                <p>
-                  Mr. Abdul Wasiu Yusuf serves as the Authorised Payment Agent for The Book Clique. Originally from Nigeria and now based in the United States, he is responsible for coordinating service payments for authors who choose to work with our organisation.
-                </p>
-                <p>
-                  He works directly with authors to communicate approved payment instructions, coordinate payment confirmations and maintain payment records. Through this arrangement, authors have a designated representative to contact when they are ready to complete payment for their selected services.
-                </p>
-              </div>
-
-              {/* Official Email For Confirmation Box */}
-              {/* STRICT REQUIREMENT: Ordinary, non-clickable text only. No link, no button, no form */}
-              <div className="bg-[#FAF6F0] border-2 border-[#C5A059]/60 rounded-md p-5 sm:p-6 space-y-3">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#8C6D23]" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-[#143826]">
-                    Official Payment Agent Email
-                  </span>
-                </div>
-
-                <div className="bg-[#FFFFFF] border border-[#D5CDBD] rounded p-4 text-center sm:text-left">
-                  <span className="font-mono text-base sm:text-lg font-bold text-[#143826] select-all tracking-normal block">
-                    info.abdulwasiuyusuf@gmail.com
-                  </span>
-                </div>
-
-                <p className="text-xs text-[#636E67] leading-relaxed">
-                  <strong>Verification &amp; Identification Note:</strong> The email address above is displayed strictly as ordinary reference text for confirmation and identification purposes. There is no clickable email link or payment button on this page. Authors receive this official address from our team upon agreeing to a service and contact Mr. Abdul Wasiu Yusuf directly to coordinate payment.
-                </p>
-              </div>
-
-              {/* How the Payment Arrangement Works */}
-              <div className="bg-[#FAF8F5] border border-[#E6DFD5] rounded-md p-5 sm:p-6 space-y-3">
-                <h4 className="font-serif text-lg font-bold text-[#143826] flex items-center gap-2">
-                  <FileText className="w-4.5 h-4.5 text-[#8C6D23]" />
-                  <span>How the Payment Arrangement Works</span>
-                </h4>
-
-                <ul className="space-y-2.5 text-xs sm:text-sm text-[#464F4A] leading-relaxed">
-                  <li className="flex items-start gap-2.5">
-                    <span className="w-5 h-5 rounded-full bg-[#143826] text-[#FAF6F0] text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
-                    <span>Authors first communicate with a member of The Book Clique team regarding the services they are interested in.</span>
-                  </li>
-                  <li className="flex items-start gap-2.5">
-                    <span className="w-5 h-5 rounded-full bg-[#143826] text-[#FAF6F0] text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
-                    <span>Once an author selects a service and agrees to the applicable price, the team member provides the official payment agent's email address.</span>
-                  </li>
-                  <li className="flex items-start gap-2.5">
-                    <span className="w-5 h-5 rounded-full bg-[#143826] text-[#FAF6F0] text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
-                    <span>The author then contacts Mr. Abdul Wasiu Yusuf directly through his Gmail address to arrange payment.</span>
-                  </li>
-                  <li className="flex items-start gap-2.5">
-                    <span className="w-5 h-5 rounded-full bg-[#143826] text-[#FAF6F0] text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">4</span>
-                    <span>Mr. Abdul Wasiu Yusuf provides the approved payment instructions and coordinates the payment process.</span>
-                  </li>
-                  <li className="flex items-start gap-2.5">
-                    <span className="w-5 h-5 rounded-full bg-[#143826] text-[#FAF6F0] text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">5</span>
-                    <span>Payment is confirmed before the agreed service proceeds.</span>
-                  </li>
-                </ul>
-              </div>
-
-            </div>
-          </div>
-        </section>
-
-        {/* ============================================================== */}
-        {/* 4. PRESERVED EXISTING ABOUT US CONTENT (IN ORIGINAL ORDER) */}
+        {/* 3. PRESERVED EXISTING ABOUT US CONTENT (IN ORIGINAL ORDER)     */}
         {/* ============================================================== */}
 
         {/* Existing Header: Purpose, Vision & Craft */}
@@ -417,7 +268,7 @@ export const AboutUsView: React.FC = () => {
           <div className="lg:col-span-6">
             <div className="aspect-[4/3] rounded border border-[#DFD7CA] overflow-hidden shadow-md">
               <img
-                src="/src/assets/images/hero_literary_atmosphere_1793101459242.jpg"
+                src="/images/hero-image.jpg"
                 alt="Sunlit literary archive with high bookshelves"
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"

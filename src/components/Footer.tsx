@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { AlertTriangle, ShieldCheck, ArrowUp } from 'lucide-react';
-import { useApp, PageView } from '../context/AppContext';
+import { ExternalLink, ShieldCheck, ArrowUp } from 'lucide-react';
+import { useApp } from '../context/AppContext';
 
 export const Footer: React.FC = () => {
-  const { siteConfig, setActiveView, setIsAdminOpen, setIsDonationModalOpen, setServicePreselectId } = useApp();
+  const { setActiveView, setServicePreselectId } = useApp();
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
 
@@ -30,11 +30,11 @@ export const Footer: React.FC = () => {
               className="flex items-center gap-3 text-left group focus-visible:outline-2 focus-visible:outline-[#D4AF37] cursor-pointer"
               aria-label="The Book Clique - Return to Home"
             >
-              <div className="bg-[#FAF8F5] p-1.5 rounded-sm border border-[#D4AF37]/40 shadow-sm inline-flex items-center justify-center transition-transform group-hover:scale-[1.03] shrink-0">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-[50%] overflow-hidden bg-[#FAF8F5] p-1 border border-[#D4AF37]/60 shadow-sm inline-flex items-center justify-center transition-all duration-300 group-hover:scale-[1.04] group-hover:border-[#D4AF37] shrink-0">
                 <img
                   src="/assets/aistudio/The_Book_Clique_Emblem_d9f03a53.png"
                   alt="The Book Clique Emblem"
-                  className="h-10 sm:h-11 w-auto object-contain"
+                  className="w-full h-full object-contain"
                 />
               </div>
               <span className="font-serif text-2xl font-semibold text-[#FFFDF9] group-hover:text-[#E8D4B4] transition-colors">
@@ -121,6 +121,17 @@ export const Footer: React.FC = () => {
                 >
                   Support &amp; Donations
                 </button>
+              </li>
+              <li>
+                <a
+                  href="https://thebookcliqueportfolio.netlify.app/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-[#FFFDF9] transition-colors inline-flex items-center gap-1 text-[#E8D4B4]"
+                >
+                  <span>The Book Clique / Portfolio</span>
+                  <ExternalLink className="w-3 h-3 shrink-0" />
+                </a>
               </li>
             </ul>
           </div>
@@ -260,15 +271,6 @@ export const Footer: React.FC = () => {
                   className="hover:text-[#FFFDF9] transition-colors cursor-pointer"
                 >
                   Book Trailer Production
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => setIsAdminOpen(true)}
-                  className="hover:text-[#D4AF37] transition-colors cursor-pointer flex items-center gap-1 text-[#A4B5AC]"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-[#D4AF37]" />
-                  <span>Admin &amp; CMS Console</span>
                 </button>
               </li>
             </ul>

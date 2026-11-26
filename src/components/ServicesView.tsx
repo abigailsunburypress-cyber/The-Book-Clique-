@@ -97,7 +97,7 @@ export const ServicesView: React.FC = () => {
                 onClick={() => setActiveView('pricing')}
                 className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-[#143826] border border-[#D5CDBD] hover:bg-[#EFECE4] rounded transition-colors cursor-pointer"
               >
-                Compare Pricing Tiers
+                Explore Service Quotations
               </button>
             </div>
           </div>
@@ -226,7 +226,7 @@ export const ServicesView: React.FC = () => {
                         : 'bg-[#FAF7F2] text-[#4E5752] hover:bg-[#EFECE4] border border-[#E0D7C7]'
                     }`}
                   >
-                    Pricing Packages ({selectedService.packages.length})
+                    Service Packages ({selectedService.packages.length})
                   </button>
                 </div>
               )}
@@ -326,7 +326,7 @@ export const ServicesView: React.FC = () => {
                         <h4 className="font-serif text-lg font-semibold text-[#143826]">
                           {pkg.name}
                         </h4>
-                        <p className="font-semibold text-xs text-[#8C6D23] mt-1 tabular-nums">
+                        <p className="text-[11px] font-medium text-[#8C6D23] mt-1.5 leading-relaxed bg-[#FAF7F2] border border-[#EAE4D8] rounded p-2">
                           {pkg.price}
                         </p>
                         <p className="text-xs text-[#556059] mt-2 leading-relaxed">
@@ -356,7 +356,7 @@ export const ServicesView: React.FC = () => {
                               : 'bg-[#EFEBE4] text-[#143826] hover:bg-[#E4DFD5]'
                           }`}
                         >
-                          Enquire &amp; Book
+                          Request Quotation
                         </button>
                       </div>
                     </div>

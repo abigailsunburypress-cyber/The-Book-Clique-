@@ -1,0 +1,24 @@
+{
+  "activeManuscriptId": "raising-the-whole-child",
+  "sessionStatus": "active",
+  "startedAt": "2026-11-06T00:00:00.000Z",
+  "chaptersPerDay": 2,
+  "batchScheduleStartDate": "2026-11-06T00:00:00.000Z",
+  "currentDayOverride": null,
+  "discussionMeetingDate": "Last Thursday of the Month · 7:00 PM EST",
+  "discussionMeetingFormat": "Virtual Salon & Community Annotation Board",
+  "discussionPrompts": [
+    "How does Dr. Pérez Visus’s focus on the \"whole child\" reframe how we view behavioural challenges at school and home?",
+    "Which of the foundational pillars (emotional safety, diet, exercise, sleep, play, nature) resonated most with your observations?",
+    "How do sensory processing differences and the stress response explain behaviours previously labelled as disruptive?",
+    "What practical self-regulation strategies from Chapter 1 and Chapter 2 have you found most applicable in daily life?"
+  ],
+  "readingHistory": [
+    {
+      "manuscriptId": "raising-the-whole-child",
+      "completedAt": null,
+      "sessionTitle": "RAISING THE WHOLE CHILD",
+      "author": "Dr. Eva Pérez Visus"
+    }
+  ]
+}

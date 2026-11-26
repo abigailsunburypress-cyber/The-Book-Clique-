@@ -6,32 +6,27 @@ import { useApp } from '../context/AppContext';
 // Elegant libraries, beautiful bookshelves, stacks of books, readers enjoying books, cosy reading corners, and literary spaces.
 const HERO_ROTATING_IMAGES = [
   {
-    url: '/src/assets/images/hero_literary_atmosphere_1793101459242.jpg',
+    url: '/images/hero-image.jpg',
     alt: 'Quiet atmospheric library with warm oak bookshelves and reading armchair',
     title: 'Historic Archive & Library'
   },
   {
-    url: '/src/assets/images/reading_community_gathering_1793101460233.jpg',
+    url: '/images/reading-community-gathering.jpg',
     alt: 'Engaged readers enjoying book discussions in a warm literary salon',
     title: 'Reading Community Salon'
   },
   {
-    url: 'https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=1920&q=80',
+    url: '/images/unsplash/photo-1521587760476-6c12a4b040da-w1920.jpg',
     alt: 'Magnificent grand classical library with vaulted book archways and warm light',
     title: 'Grand Classical Library'
   },
   {
-    url: 'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=1920&q=80',
+    url: '/images/unsplash/photo-1512820790803-83ca734da794-w1920.jpg',
     alt: 'Cosy reading nook with an open hardcover book and soft ambient reading lamp',
     title: 'Cosy Literary Nook'
   },
   {
-    url: 'https://images.unsplash.com/photo-1507842229451-7f01be777a26?auto=format&fit=crop&w=1920&q=80',
-    alt: 'Rich vintage bookshelves filled with classic leather-bound manuscripts and volumes',
-    title: 'Antiquarian Bookshelf'
-  },
-  {
-    url: 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&w=1920&q=80',
+    url: '/images/unsplash/photo-1497633762265-9d179a990aa6-w1920.jpg',
     alt: 'Tall stacks of timeless hardcover books bathed in gentle morning window light',
     title: 'Stacks of Classic Books'
   },
@@ -105,7 +100,7 @@ export const HeroSection: React.FC = () => {
           const isFailed = failedImages[index];
           // If a remote image fails, smoothly fallback to our verified local library asset
           const resolvedSrc = isFailed
-            ? '/src/assets/images/hero_literary_atmosphere_1793101459242.jpg'
+            ? '/images/hero-image.jpg'
             : img.url;
 
           return (

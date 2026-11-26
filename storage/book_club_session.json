@@ -1,23 +1,24 @@
 {
-  "activeManuscriptId": "ethans-presence",
+  "activeManuscriptId": "slow-productivity",
   "sessionStatus": "active",
-  "startedAt": "2026-11-02T09:50:12.323Z",
+  "startedAt": "2026-11-06T00:00:00.000Z",
   "chaptersPerDay": 2,
-  "batchScheduleStartDate": "2026-11-02T09:50:12.323Z",
+  "batchScheduleStartDate": "2026-11-06T00:00:00.000Z",
   "currentDayOverride": null,
   "discussionMeetingDate": "Last Thursday of the Month · 7:00 PM EST",
-  "discussionMeetingFormat": "Virtual Salon & Community Annotation Board",
+  "discussionMeetingFormat": "Virtual Salon & Community Discussion Board",
   "discussionPrompts": [
-    "How does Ethan's youthful presence challenge the town's fifty-year silence and shared assumptions?",
-    "What role does unconditional patience play in Anna's slow re-emergence into the community?",
-    "In what ways does this memoir illustrate how inherited judgment can be gently dissolved by compassion?"
+    "How can doing fewer things deliberately lead to deeper, more fulfilling creative work?",
+    "What does working at a natural pace look like when balancing long-term projects and everyday responsibilities?",
+    "Where do you notice busyness substituting for genuine quality in modern work and reading life?",
+    "Which principle from Slow Productivity feels most immediately applicable to your own creative or professional routine?"
   ],
   "readingHistory": [
     {
-      "manuscriptId": "ethans-presence",
-      "completedAt": "2026-11-02T09:49:54.557Z",
-      "sessionTitle": "ETHAN'S PRESENCE",
-      "author": "Chaplain Tom McQueen"
+      "manuscriptId": "slow-productivity",
+      "completedAt": null,
+      "sessionTitle": "Slow Productivity",
+      "author": "Cal Newport"
     }
   ]
 }

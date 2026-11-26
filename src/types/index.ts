@@ -65,13 +65,18 @@ export interface BookClubSelection {
   month: string;
   year: number;
   bookTitle: string;
+  subtitle?: string;
   author: string;
+  authorEmail?: string;
+  authorAmazonUrl?: string;
+  amazonUrl?: string;
   genre: string;
   synopsis: string;
   meetingDate: string;
   meetingFormat: string;
   coverImage: string;
   discussionPrompts: string[];
+  selectionVersion?: number;
 }
 
 export interface BookClubSession {
